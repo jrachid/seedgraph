@@ -1,7 +1,16 @@
 """Core 2 scenarios: PK reservation, FK reconciliation before any flush, the boundary bridge."""
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, Text, create_engine, event, inspect
+from sqlalchemy import (
+    Column,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    Text,
+    create_engine,
+    event,
+    inspect,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, class_mapper, declarative_base, relationship
 
@@ -53,6 +62,21 @@ class Department(Base):
 class Tag(Base):
     __tablename__ = "tags"
     code = Column(Text, primary_key=True)
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    k1 = Column(Integer, primary_key=True)
+    k2 = Column(Integer, primary_key=True)
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+    id = Column(Integer, primary_key=True)
+    k1 = Column(Integer, nullable=False)
+    k2 = Column(Integer, nullable=False)
+    __table_args__ = (ForeignKeyConstraint(["k1", "k2"], ["orders.k1", "orders.k2"]),)
+    order = relationship("Order")
 
 
 def _users(count=3):
@@ -277,3 +301,42 @@ def test_seeding_without_maxima_collides_at_flush(session):
     with pytest.raises(IntegrityError):
         session.flush()
     session.rollback()
+
+
+def test_reserve_composite_pk_per_column():
+    orders = [Order() for _ in range(3)]
+
+    reconcile_graph(orders, existing_maxima={"orders": {"k1": 10, "k2": 20}})
+
+    assert [(order.k1, order.k2) for order in orders] == [(11, 21), (12, 22), (13, 23)]
+
+
+def test_reconcile_composite_fk_pairs_each_column():
+    order = Order()
+    item = OrderItem(order=order)
+
+    reconcile_graph([order, item])
+
+    assert (item.k1, item.k2) == (order.k1, order.k2) == (1, 1)
+    assert_referentially_consistent([order, item])
+
+
+def test_composite_flow_flushes(session):
+    session.add(Order(k1=10, k2=20))
+    session.commit()
+
+    orders = [Order() for _ in range(2)]
+    items = [OrderItem(order=orders[index % 2]) for index in range(3)]
+    graph = orders + items
+
+    reconcile_graph(graph, existing_maxima=existing_maxima(session, Order))
+    assert_referentially_consistent(graph)
+
+    assert [(order.k1, order.k2) for order in orders] == [(11, 21), (12, 22)]
+    for index, item in enumerate(items):
+        assert (item.k1, item.k2) == (orders[index % 2].k1, orders[index % 2].k2)
+
+    session.add_all(graph)
+    session.flush()
+
+    assert (session.query(Order).count(), session.query(OrderItem).count()) == (3, 3)
