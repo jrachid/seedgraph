@@ -72,7 +72,7 @@ def test_seed_returns_consistent_graph(session):
 
 
 def test_seed_persists_without_fk_violation(session):
-    graph = seed(session, User, post=2, post__comment=3)
+    seed(session, User, post=2, post__comment=3)
     session.flush()
 
     user_count = session.query(User).count()

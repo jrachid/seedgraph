@@ -6,7 +6,7 @@ real PKs in the same graph, before any flush happens.
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["seed", "__version__"]
+__all__ = ["__version__", "seed"]
 
 
 def seed(session, model, /, **shape):
