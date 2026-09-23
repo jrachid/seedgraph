@@ -1,10 +1,10 @@
 """Core 2 scenarios: PK reservation, FK reconciliation before any flush, the boundary bridge."""
 
 import pytest
-from sqlalchemy import Column, Integer, Text
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import Column, ForeignKey, Integer, Text, inspect
+from sqlalchemy.orm import class_mapper, declarative_base, relationship
 
-from seedgraph.reconciliation import UnsupportedPrimaryKeyError, reconcile_graph
+from seedgraph.reconciliation import PendingParentError, UnsupportedPrimaryKeyError, reconcile_graph
 
 Base = declarative_base()
 
@@ -13,6 +13,39 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
+    posts = relationship("Post", overlaps="author")
+
+
+class Post(Base):
+    __tablename__ = "posts"
+    id = Column(Integer, primary_key=True)
+    title = Column(Text, nullable=False)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    author = relationship("User", overlaps="posts")
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id = Column(Integer, primary_key=True)
+    body = Column(Text, nullable=False)
+    post_id = Column(Integer, ForeignKey("posts.id"), nullable=False)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    post = relationship("Post")
+    author = relationship("User")
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+    id = Column(Integer, primary_key=True)
+    dept_id = Column(Integer, ForeignKey("departments.id"))
+    dept = relationship("Department", foreign_keys=[dept_id])
+
+
+class Department(Base):
+    __tablename__ = "departments"
+    id = Column(Integer, primary_key=True)
+    head_id = Column(Integer, ForeignKey("employees.id"))
+    head = relationship("Employee", foreign_keys=[head_id])
 
 
 class Tag(Base):
@@ -22,6 +55,31 @@ class Tag(Base):
 
 def _users(count=3):
     return [User(name=f"user-{index}") for index in range(count)]
+
+
+def _column_value(obj, column):
+    return getattr(obj, class_mapper(type(obj)).get_property_by_column(column).key)
+
+
+def assert_referentially_consistent(objects):
+    """Test oracle: for every set relationship, the child FK columns equal the linked parent's PK."""
+    for obj in objects:
+        state = inspect(obj)
+        for rel in state.mapper.relationships:
+            if rel.direction.name == "MANYTOMANY" or rel.key in state.unloaded:
+                continue
+            value = getattr(obj, rel.key)
+            if value is None:
+                continue
+            linked = list(value) if rel.direction.name == "ONETOMANY" else [value]
+            for other in linked:
+                for local_column, remote_column in rel.local_remote_pairs:
+                    owner_value = _column_value(obj, local_column)
+                    other_value = _column_value(other, remote_column)
+                    assert owner_value == other_value, (
+                        f"{type(obj).__name__}.{rel.key}: {local_column.name}={owner_value}"
+                        f" vs {remote_column.name}={other_value}"
+                    )
 
 
 def test_reserve_assigns_ids_above_existing_maxima():
@@ -69,3 +127,80 @@ def test_unsupported_pk_type_raises():
 
     assert "tags" in str(excinfo.value)
     assert "code" in str(excinfo.value)
+
+
+def test_reconcile_copies_parent_pk_into_fk_columns():
+    alice = User(name="alice")
+    post = Post(title="p1", author=alice)
+
+    reconcile_graph([alice, post])
+
+    assert post.author_id == alice.id == 1
+    assert_referentially_consistent([alice, post])
+
+
+def test_reconcile_supports_shared_parents():
+    users = _users()
+    posts = [Post(title=f"p{index}", author=users[0]) for index in range(3)]
+    comments = [
+        Comment(body=f"c{index}", post=posts[index], author=users[index % 3]) for index in range(3)
+    ]
+    graph = users + posts + comments
+
+    reconcile_graph(graph)
+
+    assert_referentially_consistent(graph)
+    for post in posts:
+        assert post.author_id == users[0].id
+    assert {comment.author_id for comment in comments} == {user.id for user in users}
+    for index, comment in enumerate(comments):
+        assert comment.post_id == posts[index].id
+
+
+def test_reconcile_from_the_collection_side():
+    alice = User(name="alice")
+    posts = [Post(title=f"p{index}") for index in range(2)]
+    alice.posts = posts
+
+    reconcile_graph([alice, *posts])
+
+    assert_referentially_consistent([alice, *posts])
+    for post in posts:
+        assert post.author is None
+        assert post.author_id == alice.id
+
+
+def test_reconcile_reuses_a_persistent_parent_real_pk():
+    existing = User(name="legacy")
+    existing.id = 17
+    post = Post(title="p1", author=existing)
+
+    reconcile_graph([post])
+
+    assert post.author_id == 17
+    assert existing.id == 17
+    assert existing.name == "legacy"
+    assert_referentially_consistent([post])
+
+
+def test_pending_parent_outside_graph_raises():
+    orphan_author = User(name="never-reserved")
+    post = Post(title="p1", author=orphan_author)
+
+    with pytest.raises(PendingParentError) as excinfo:
+        reconcile_graph([post])
+
+    assert "author" in str(excinfo.value)
+
+
+def test_reconcile_mutual_references_without_flush():
+    employee = Employee()
+    department = Department()
+    employee.dept = department
+    department.head = employee
+
+    reconcile_graph([employee, department])
+
+    assert employee.dept_id == department.id
+    assert department.head_id == employee.id
+    assert_referentially_consistent([employee, department])

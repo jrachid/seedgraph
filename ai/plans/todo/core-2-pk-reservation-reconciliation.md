@@ -3,8 +3,8 @@
 **Nature** : fonctionnalité
 
 > **Reprise — où en est ce plan**
-> Tranche en cours : T2 — réconcilier les FK depuis les liens (moteur pur, avant tout flush).
-> Dernière case cochée : T1.6 (point d'arrêt atteint le 23/09 — réservation livrée : 5 scénarios verts, ruff zéro, baseline intacte ; commit en attente du go de Rachid).
+> Tranche en cours : T3 — le pont session : maxima réels et preuve de bout en bout.
+> Dernière case cochée : T2.8 (point d'arrêt atteint le 23/09 — réconciliation livrée : 11 scénarios verts au total, ruff zéro, baseline intacte ; commit en attente du go de Rachid). Leçon du jour consignée : une boucle mutuelle exige `foreign_keys=[...]` explicite sur chaque relation, sinon l'erreur de configuration casse tout le registre.
 > Laissé cassé (voulu) : les deux tests rouges de `tests/test_seed.py` spécifient `seed()` — ils attendent les points 3 (Shape API) et 4 (génération de champs) ; ils doivent échouer À L'IDENTIQUE (par `NotImplementedError`) à chaque point d'arrêt de ce plan. Tout autre échec est une régression.
 > Règle de travail du 23/09 : je ne committe plus rien. Chaque tranche finie et verte s'arrête sur un point d'arrêt — je remets le message de commit, Rachid committe (ou délègue), et la suite n'attaque qu'à son go.
 
@@ -169,14 +169,14 @@ Chaque scénario s'écrit rouge d'abord (le module n'existe pas : `ImportError`)
 
 L'invariant en miniature vit ici : `post.author_id == alice.id` alors qu'aucune base n'a vu passer quoi que ce soit.
 
-- [ ] T2.1 — `test_reconcile_copies_parent_pk_into_fk_columns` : `post.author = alice` posé → `post.author_id == alice.id` après `reconcile_graph`, SANS flush — rouge d'abord
-- [ ] T2.2 — `test_reconcile_supports_shared_parents` : un auteur, trois posts ; un comment dont `author` ∈ users → toutes les FK pointent vers les PK réservées des mêmes parents
-- [ ] T2.3 — `test_reconcile_from_the_collection_side` : lien posé depuis le parent (`user.posts = [...]`) → les FK des enfants sont posées quand même (côté ONETOMANY)
-- [ ] T2.4 — `test_reconcile_reuses_a_persistent_parent_real_pk` : un parent à PK réelle 17 (chargé ou pré-rempli) → FK = 17, le parent intact — la frontière du principe 6
-- [ ] T2.5 — `test_pending_parent_outside_graph_raises` : `post.author` pointe vers un objet hors de la liste fournie, sans PK → `PendingParentError`, le message nomme la relation
-- [ ] T2.6 — `test_reconcile_mutual_references_without_flush` : deux objets liés dans les deux sens → les deux FK sont posées, l'invariant tient en mémoire (le flush d'une boucle attend le point 7)
-- [ ] T2.7 — l'oracle `assert_referentially_consistent(objects)` : pour chaque contrainte FK de chaque table, la valeur posée est la PK d'un objet du graphe, lié par la relation — utilisé par tous les scénarios ci-dessus
-- [ ] T2.8 — point d'arrêt : remettre le message de commit `feat(reconciliation): reconcile FK columns from linked parents before any flush` et attendre le go — rituel identique
+- [x] T2.1 — `test_reconcile_copies_parent_pk_into_fk_columns` : `post.author = alice` posé → `post.author_id == alice.id` après `reconcile_graph`, SANS flush — rouge d'abord
+- [x] T2.2 — `test_reconcile_supports_shared_parents` : un auteur, trois posts ; un comment dont `author` ∈ users → toutes les FK pointent vers les PK réservées des mêmes parents
+- [x] T2.3 — `test_reconcile_from_the_collection_side` : lien posé depuis le parent (`user.posts = [...]`) → les FK des enfants sont posées quand même (côté ONETOMANY)
+- [x] T2.4 — `test_reconcile_reuses_a_persistent_parent_real_pk` : un parent à PK réelle 17 (chargé ou pré-rempli) → FK = 17, le parent intact — la frontière du principe 6
+- [x] T2.5 — `test_pending_parent_outside_graph_raises` : `post.author` pointe vers un objet hors de la liste fournie, sans PK → `PendingParentError`, le message nomme la relation
+- [x] T2.6 — `test_reconcile_mutual_references_without_flush` : deux objets liés dans les deux sens → les deux FK sont posées, l'invariant tient en mémoire (le flush d'une boucle attend le point 7)
+- [x] T2.7 — l'oracle `assert_referentially_consistent(objects)` : pour chaque contrainte FK de chaque table, la valeur posée est la PK d'un objet du graphe, lié par la relation — utilisé par tous les scénarios ci-dessus
+- [x] T2.8 — point d'arrêt : remettre le message de commit `feat(reconciliation): reconcile FK columns from linked parents before any flush` et attendre le go — rituel identique
 
 ## Tranche 3 — le pont session : maxima réels et preuve de bout en bout
 
