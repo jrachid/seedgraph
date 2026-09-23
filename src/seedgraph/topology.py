@@ -7,7 +7,7 @@ from sqlalchemy.exc import NoReferencedTableError
 
 from seedgraph.exceptions import SeedgraphError
 
-__all__ = ["CyclicFKGraphError", "dependency_graph", "topological_order"]
+__all__ = ["CyclicFKGraphError", "dependency_graph", "metadata_of", "topological_order"]
 
 
 class CyclicFKGraphError(SeedgraphError):
@@ -21,7 +21,7 @@ class CyclicFKGraphError(SeedgraphError):
 
 def dependency_graph(source):
     """Map every table key to the set of table keys it references through declared FK constraints."""
-    metadata = _metadata_of(source)
+    metadata = metadata_of(source)
     graph = {key: set() for key in metadata.tables}
     for child, parent, _use_alter in _declared_edges(metadata):
         graph[child].add(parent)
@@ -30,7 +30,7 @@ def dependency_graph(source):
 
 def topological_order(source):
     """Return the metadata's tables in strict parent-first order, or raise CyclicFKGraphError."""
-    metadata = _metadata_of(source)
+    metadata = metadata_of(source)
     parent_sets = _ordering_edges(metadata)
     order, remaining = _kahn_order(parent_sets)
     if remaining:
@@ -38,7 +38,7 @@ def topological_order(source):
     return [metadata.tables[key] for key in order]
 
 
-def _metadata_of(source):
+def metadata_of(source):
     """Return the MetaData behind a mapped class, or pass a MetaData through."""
     if isinstance(source, MetaData):
         return source

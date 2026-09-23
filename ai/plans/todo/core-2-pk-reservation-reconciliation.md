@@ -3,8 +3,8 @@
 **Nature** : fonctionnalité
 
 > **Reprise — où en est ce plan**
-> Tranche en cours : T3 — le pont session : maxima réels et preuve de bout en bout.
-> Dernière case cochée : T2.8 (point d'arrêt atteint le 23/09 — réconciliation livrée : 11 scénarios verts au total, ruff zéro, baseline intacte ; commit en attente du go de Rachid). Leçon du jour consignée : une boucle mutuelle exige `foreign_keys=[...]` explicite sur chaque relation, sinon l'erreur de configuration casse tout le registre.
+> Tranche en cours : T4 — les composites, de bout en bout.
+> Dernière case cochée : T3.5 (point d'arrêt atteint le 23/09 — le pont session est livré : `metadata_of` publique, `boundary.existing_maxima`, preuve de bout en bout sous FK actives + témoin négatif de collision ; 14 scénarios verts au total, ruff zéro, baseline intacte ; commit en attente du go de Rachid).
 > Laissé cassé (voulu) : les deux tests rouges de `tests/test_seed.py` spécifient `seed()` — ils attendent les points 3 (Shape API) et 4 (génération de champs) ; ils doivent échouer À L'IDENTIQUE (par `NotImplementedError`) à chaque point d'arrêt de ce plan. Tout autre échec est une régression.
 > Règle de travail du 23/09 : je ne committe plus rien. Chaque tranche finie et verte s'arrête sur un point d'arrêt — je remets le message de commit, Rachid committe (ou délègue), et la suite n'attaque qu'à son go.
 
@@ -182,11 +182,11 @@ L'invariant en miniature vit ici : `post.author_id == alice.id` alors qu'aucune 
 
 La tranche qui prouve. SQLite en mémoire, FK **réellement** actives (écouteur avant `create_all`), commits pour persister les rows de préparation.
 
-- [ ] T3.1 — refactor : `_metadata_of` devient `metadata_of` publique dans `topology.py` (aucun comportement change ; couvert par les tests existants de Core 1) — rouge d'abord : `boundary` ne peut pas l'importer
-- [ ] T3.2 — `test_existing_maxima_reads_real_maxima` : des rows commitées → `existing_maxima(session, User)` rend `{"users": {"id": 12}, ...}` ; table vide → 0
-- [ ] T3.3 — `test_full_flow_flushes_without_fk_violation` : pré-existant commité (users jusqu'à 12) → construire à la main alice, bob, posts, comments → `existing_maxima` → `reconcile_graph` → oracle → `add_all` → `flush` : zéro `IntegrityError`, comptes exacts, ids réservés qui continuent au-dessus de l'existant
-- [ ] T3.4 — `test_seeding_without_maxima_collides_at_flush` : le témoin négatif — même base non vide, réservation SANS maxima (à partir de 1) → le flush lève `IntegrityError` : la politique max est porteuse, la preuve est dans le test
-- [ ] T3.5 — point d'arrêt : remettre le message de commit `feat(boundary): read existing maxima and prove the full flow flushes clean` et attendre le go — rituel identique
+- [x] T3.1 — refactor : `_metadata_of` devient `metadata_of` publique dans `topology.py` (aucun comportement change ; couvert par les tests existants de Core 1) — rouge d'abord : `boundary` ne peut pas l'importer
+- [x] T3.2 — `test_existing_maxima_reads_real_maxima` : des rows commitées → `existing_maxima(session, User)` rend `{"users": {"id": 12}, ...}` ; table vide → 0
+- [x] T3.3 — `test_full_flow_flushes_without_fk_violation` : pré-existant commité (users jusqu'à 12) → construire à la main alice, bob, posts, comments → `existing_maxima` → `reconcile_graph` → oracle → `add_all` → `flush` : zéro `IntegrityError`, comptes exacts, ids réservés qui continuent au-dessus de l'existant
+- [x] T3.4 — `test_seeding_without_maxima_collides_at_flush` : le témoin négatif — même base non vide, réservation SANS maxima (à partir de 1) → le flush lève `IntegrityError` : la politique max est porteuse, la preuve est dans le test
+- [x] T3.5 — point d'arrêt : remettre le message de commit `feat(boundary): read existing maxima and prove the full flow flushes clean` et attendre le go — rituel identique
 
 ## Tranche 4 — les composites, de bout en bout
 

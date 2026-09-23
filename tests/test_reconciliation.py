@@ -1,9 +1,11 @@
 """Core 2 scenarios: PK reservation, FK reconciliation before any flush, the boundary bridge."""
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, Text, inspect
-from sqlalchemy.orm import class_mapper, declarative_base, relationship
+from sqlalchemy import Column, ForeignKey, Integer, Text, create_engine, event, inspect
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, class_mapper, declarative_base, relationship
 
+from seedgraph.boundary import existing_maxima
 from seedgraph.reconciliation import PendingParentError, UnsupportedPrimaryKeyError, reconcile_graph
 
 Base = declarative_base()
@@ -59,6 +61,19 @@ def _users(count=3):
 
 def _column_value(obj, column):
     return getattr(obj, class_mapper(type(obj)).get_property_by_column(column).key)
+
+
+@pytest.fixture()
+def session():
+    engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "connect")
+    def enforce_fk(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
 
 
 def assert_referentially_consistent(objects):
@@ -204,3 +219,61 @@ def test_reconcile_mutual_references_without_flush():
     assert employee.dept_id == department.id
     assert department.head_id == employee.id
     assert_referentially_consistent([employee, department])
+
+
+def test_existing_maxima_reads_real_maxima(session):
+    session.add_all([User(name="legacy-1", id=1), User(name="legacy-2", id=12)])
+    session.commit()
+
+    maxima = existing_maxima(session, User)
+
+    assert maxima["users"] == {"id": 12}
+    assert maxima["posts"] == {"id": 0}
+    assert "tags" not in maxima
+
+
+def test_full_flow_flushes_without_fk_violation(session):
+    session.add_all([User(name="legacy-1", id=11), User(name="legacy-2", id=12)])
+    session.commit()
+
+    alice = User(name="alice")
+    bob = User(name="bob")
+    posts = [Post(title=f"p{index}", author=alice) for index in range(2)]
+    comments = [
+        Comment(body=f"c{index}", post=posts[index % 2], author=bob) for index in range(3)
+    ]
+    graph = [alice, bob, *posts, *comments]
+
+    reconcile_graph(graph, existing_maxima=existing_maxima(session, User))
+    assert_referentially_consistent(graph)
+
+    assert [alice.id, bob.id] == [13, 14]
+    assert [post.id for post in posts] == [1, 2]
+    for post in posts:
+        assert post.author_id == alice.id
+    assert {comment.author_id for comment in comments} == {bob.id}
+
+    session.add_all(graph)
+    session.flush()
+
+    assert (
+        session.query(User).count(),
+        session.query(Post).count(),
+        session.query(Comment).count(),
+    ) == (4, 2, 3)
+
+
+def test_seeding_without_maxima_collides_at_flush(session):
+    session.add_all([User(name="legacy-1", id=1), User(name="legacy-2", id=2)])
+    session.commit()
+
+    alice = User(name="alice")
+    post = Post(title="p1", author=alice)
+
+    reconcile_graph([alice, post])
+    assert alice.id == 1
+
+    session.add_all([alice, post])
+    with pytest.raises(IntegrityError):
+        session.flush()
+    session.rollback()
