@@ -60,7 +60,7 @@ assert graph.users[0].posts[0].author_id == graph.users[0].id  # real PK, real F
 
 ## Roadmap 🎯
 
-- [ ] Core: FK-graph topology from metadata (topological order, cycle detection)
+- [x] Core: FK-graph topology from metadata (topological order, cycle detection)
 - [ ] PK reservation/reconciliation across the graph
 - [ ] Shape API (`relation=n`, nesting, shared parents)
 - [ ] Custom field generators (Faker under the hood)
