@@ -1,7 +1,7 @@
 """Core 3 scenarios: shape parsing, graph building, and the seed() orchestration."""
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, Text, create_engine, event
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, Table, Text, create_engine, event
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 from _oracle import assert_referentially_consistent
@@ -11,6 +11,7 @@ from seedgraph.shape import (
     InvalidShapeCountError,
     MissingRequiredParentError,
     UnknownShapeKeyError,
+    UnsupportedPlaceholderError,
     UnsupportedShapeDirectionError,
     build_graph,
 )
@@ -56,6 +57,31 @@ class Message(Base):
     id = Column(Integer, primary_key=True)
     received_in_id = Column(Integer, ForeignKey("mailboxes.id"))
     sent_from_id = Column(Integer, ForeignKey("mailboxes.id"))
+
+
+articles_tags = Table(
+    "articles_tags",
+    Base.metadata,
+    Column("article_id", ForeignKey("articles.id"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id"), primary_key=True),
+)
+
+
+class Article(Base):
+    __tablename__ = "articles"
+    id = Column(Integer, primary_key=True)
+    tags = relationship("Tag", secondary=articles_tags)
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+    id = Column(Integer, primary_key=True)
+
+
+class Event(Base):
+    __tablename__ = "events"
+    id = Column(Integer, primary_key=True)
+    scheduled_at = Column(DateTime, nullable=False)
 
 
 def _engine():
@@ -175,3 +201,29 @@ def test_fallback_without_matching_ancestor_raises(session):
         seed(session, Post, comment=3)
 
     assert "author" in str(excinfo.value)
+
+
+def test_many_to_many_key_raises():
+    with pytest.raises(UnsupportedShapeDirectionError) as excinfo:
+        build_graph(Article, {"tag": 2})
+
+    assert "tag" in str(excinfo.value)
+    assert "secondary" in str(excinfo.value)
+
+
+def test_unsupported_placeholder_type_raises():
+    with pytest.raises(UnsupportedPlaceholderError) as excinfo:
+        build_graph(Event, {})
+
+    assert "scheduled_at" in str(excinfo.value)
+
+
+def test_seed_continues_above_existing_rows(session):
+    session.add_all([User(name=f"legacy-{index}", id=index) for index in range(1, 5)])
+    session.commit()
+
+    graph = seed(session, User, post=1)
+
+    assert [user.id for user in graph.users] == [5, 6, 7]
+    for user in graph.users:
+        assert user.posts[0].author_id == user.id
