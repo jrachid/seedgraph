@@ -1,6 +1,9 @@
 # session notes (local only)
 .notes-session.md
 
+# ephemeral viz pages
+.tmp/
+
 # python
 __pycache__/
 *.py[cod]
