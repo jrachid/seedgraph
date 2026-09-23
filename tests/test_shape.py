@@ -9,6 +9,7 @@ from seedgraph import seed
 from seedgraph.shape import (
     AmbiguousShapeKeyError,
     InvalidShapeCountError,
+    MissingRequiredParentError,
     UnknownShapeKeyError,
     UnsupportedShapeDirectionError,
     build_graph,
@@ -30,6 +31,17 @@ class Post(Base):
     title = Column(Text, nullable=False)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     author = relationship("User", back_populates="posts")
+    comments = relationship("Comment", back_populates="post")
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id = Column(Integer, primary_key=True)
+    body = Column(Text, nullable=False)
+    post_id = Column(Integer, ForeignKey("posts.id"), nullable=False)
+    author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    post = relationship("Post", back_populates="comments")
+    author = relationship("User")
 
 
 class Mailbox(Base):
@@ -138,4 +150,28 @@ def test_parent_direction_key_raises():
         build_graph(Post, {"user": 2})
 
     assert "user" in str(excinfo.value)
+    assert "author" in str(excinfo.value)
+
+
+def test_seed_builds_nested_shape(session):
+    graph = seed(session, User, post=2, post__comment=3)
+
+    assert len(graph.users) == 3
+    assert len(graph.posts) == 6
+    assert len(graph.comments) == 18
+    for user in graph.users:
+        assert len(user.posts) == 2
+        for post in user.posts:
+            assert len(post.comments) == 3
+            for comment in post.comments:
+                assert comment.post is post
+                assert comment.post_id == post.id
+                assert comment.author_id == post.author_id
+    assert_referentially_consistent(graph.users + graph.posts + graph.comments)
+
+
+def test_fallback_without_matching_ancestor_raises(session):
+    with pytest.raises(MissingRequiredParentError) as excinfo:
+        seed(session, Post, comment=3)
+
     assert "author" in str(excinfo.value)

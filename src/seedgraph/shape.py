@@ -1,6 +1,6 @@
 """Build the object graph declared by a shape: root count first, children level by level."""
 
-from sqlalchemy import Integer, String
+from sqlalchemy import Integer, String, inspect
 from sqlalchemy.orm import class_mapper
 
 from seedgraph.exceptions import SeedgraphError
@@ -8,6 +8,7 @@ from seedgraph.exceptions import SeedgraphError
 __all__ = [
     "AmbiguousShapeKeyError",
     "InvalidShapeCountError",
+    "MissingRequiredParentError",
     "UnknownShapeKeyError",
     "UnsupportedPlaceholderError",
     "UnsupportedShapeDirectionError",
@@ -33,43 +34,46 @@ class UnsupportedShapeDirectionError(SeedgraphError):
     """A shape key walks a relationship that is not one-to-many."""
 
 
+class MissingRequiredParentError(SeedgraphError):
+    """A required link has no matching ancestor in the branch and was not declared in the shape."""
+
+
 class UnsupportedPlaceholderError(SeedgraphError):
     """A NOT NULL column without default carries a type seedgraph cannot placeholder."""
 
 
 def build_graph(model, shape):
-    """Build the declared shape's objects — the root level and one level of children in this tranche."""
+    """Build the declared shape's objects, level by level, then link every required parent."""
     counts = dict(shape)
     root_key = model.__name__.lower()
     root_count = counts.pop(root_key, DEFAULT_COUNT)
     _check_count(root_key, root_count)
-    children = _resolve_children(model, counts)
+    tree = _resolve_tree(model, counts)
     objects = []
     placeholders = {}
     for _ in range(root_count):
         root = _build_object(model, placeholders)
+        _link_required_parents(root, [])
         objects.append(root)
-        _attach_children(root, children, objects, placeholders)
+        _attach_children(root, tree, objects, placeholders, [])
     return objects
 
 
-def _resolve_children(model, counts):
-    """Resolve and validate every shape key upfront, so errors fire before anything is built."""
-    children = []
+def _resolve_tree(model, counts):
+    """Resolve every shape key into a navigated tree — errors fire before anything is built."""
+    root = {"children": {}}
     for key, count in counts.items():
         _check_count(key, count)
-        segments = key.split("__")
+        node = root
         current = model
-        relationship = None
-        for segment in segments:
+        for segment in key.split("__"):
             relationship = _resolve_segment(current, segment)
             current = relationship.mapper.class_
-        if len(segments) > 1:
-            raise UnknownShapeKeyError(
-                f"shape key {key!r}: nesting deeper than one level is not supported yet"
+            node = node["children"].setdefault(
+                relationship.key, {"relationship": relationship, "count": None, "children": {}}
             )
-        children.append((relationship, count))
-    return children
+        node["count"] = count
+    return root
 
 
 def _resolve_segment(model, segment):
@@ -98,12 +102,42 @@ def _resolve_segment(model, segment):
     return relationship
 
 
-def _attach_children(parent, children, objects, placeholders):
-    for relationship, count in children:
+def _attach_children(parent, node, objects, placeholders, ancestors):
+    branch = [*ancestors, parent]
+    for child_node in node["children"].values():
+        relationship = child_node["relationship"]
+        count = DEFAULT_COUNT if child_node["count"] is None else child_node["count"]
         for _ in range(count):
             child = _build_object(relationship.mapper.class_, placeholders)
             getattr(parent, relationship.key).append(child)
+            _link_required_parents(child, branch)
             objects.append(child)
+            _attach_children(child, child_node, objects, placeholders, branch)
+
+
+def _link_required_parents(obj, ancestors):
+    """Attach each unset required link to the nearest ancestor of the target type in the branch."""
+    state = inspect(obj)
+    for relationship in state.mapper.relationships:
+        if relationship.direction.name != "MANYTOONE" or not _is_required(relationship):
+            continue
+        if relationship.key not in state.unloaded and getattr(obj, relationship.key) is not None:
+            continue
+        target = relationship.mapper.class_
+        for ancestor in reversed(ancestors):
+            if type(ancestor) is target:
+                setattr(obj, relationship.key, ancestor)
+                break
+        else:
+            raise MissingRequiredParentError(
+                f"{type(obj).__name__}.{relationship.key} requires a {target.__name__}, but no"
+                " ancestor of that type is in the branch — provide the parent in the shape"
+            )
+
+
+def _is_required(relationship):
+    """A link is required when any of its local FK columns is NOT NULL."""
+    return any(not local_column.nullable for local_column, _ in relationship.local_remote_pairs)
 
 
 def _check_count(key, count):
