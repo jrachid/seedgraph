@@ -79,18 +79,29 @@ def _resolve_tree(model, counts):
 
 
 def _resolve_segment(model, segment):
-    matches = [
-        rel for rel in class_mapper(model).relationships
-        if rel.mapper.class_.__name__.lower() == segment
-    ]
-    if not matches:
-        raise UnknownShapeKeyError(f"unknown shape key {segment!r} for {model.__name__}")
-    if len(matches) > 1:
-        names = ", ".join(sorted(rel.key for rel in matches))
-        raise AmbiguousShapeKeyError(
-            f"shape key {segment!r} matches several relationships of {model.__name__}: {names}"
-        )
-    relationship = matches[0]
+    """Resolve one shape segment: exact relationship key first, then the model it points at."""
+    mapper = class_mapper(model)
+    exact = [rel for rel in mapper.relationships if rel.key == segment]
+    if exact:
+        relationship = exact[0]
+    else:
+        matches = [
+            rel for rel in mapper.relationships
+            if rel.mapper.class_.__name__.lower() == segment
+        ]
+        if not matches:
+            raise UnknownShapeKeyError(f"unknown shape key {segment!r} for {model.__name__}")
+        if len(matches) > 1:
+            names = ", ".join(sorted(rel.key for rel in matches))
+            raise AmbiguousShapeKeyError(
+                f"shape key {segment!r} matches several relationships of {model.__name__}"
+                f" — address it by its relationship key instead: {names}"
+            )
+        relationship = matches[0]
+    return _check_relationship(model, segment, relationship)
+
+
+def _check_relationship(model, segment, relationship):
     if relationship.direction.name == "MANYTOMANY":
         raise UnsupportedShapeDirectionError(
             f"shape key {segment!r} walks {model.__name__}.{relationship.key}, a many-to-many"

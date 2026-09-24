@@ -9,7 +9,7 @@ description = "Seed your SQLAlchemy models as a referentially-consistent graph â
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
-authors = [{ name = "Rachid J" }]
+authors = [{ name = "Rachid Jeffali" }]
 keywords = ["sqlalchemy", "seed", "fixtures", "testing", "orm", "foreign-keys"]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
