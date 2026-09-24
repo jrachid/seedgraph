@@ -3,6 +3,9 @@
 Its world is (column, fake) -> value. No session, no shape, no graph.
 """
 
+from collections.abc import Callable
+from typing import Any, TypeAlias
+
 from faker import Faker
 from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.orm import class_mapper
@@ -10,6 +13,7 @@ from sqlalchemy.orm import class_mapper
 from seedgraph.exceptions import SeedgraphError
 
 __all__ = [
+    "ColumnGenerator",
     "FieldGenerator",
     "GenerationContext",
     "UnknownGeneratorColumnError",
@@ -24,6 +28,12 @@ DEFAULT_LOCALE = "en_US"
 MAX_INTEGER = 100
 MAX_NUMERIC_LEFT_DIGITS = 6
 MAX_NUMERIC_RIGHT_DIGITS = 2
+
+ColumnGenerator: TypeAlias = Callable[["GenerationContext"], Any]
+ColumnOverride: TypeAlias = ColumnGenerator | Any
+ColumnMap: TypeAlias = dict[str, ColumnOverride]
+GeneratorMap: TypeAlias = dict[type, dict[str, ColumnGenerator]]
+OverrideMap: TypeAlias = dict[type, ColumnMap]
 
 COLUMN_HINTS = {
     "name": "name",
