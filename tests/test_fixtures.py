@@ -159,3 +159,69 @@ def test_plain_math():
     result = pytester.runpytest_subprocess()
 
     result.assert_outcomes(passed=1)
+
+
+def test_graph_fixture_accepts_generators_and_overrides(pytester):
+    pytester.makepyfile(
+        f'''
+{MINI_MODELS}
+
+def test_all_three_channels(graph):
+    graph_obj = graph(
+        User,
+        post=2,
+        post__comment=1,
+        generators={{User: {{"name": lambda ctx: "custom-from-generators"}}}},
+        overrides={{User: {{"name": "winner"}}}},
+    )
+
+    assert all(user.name == "winner" for user in graph_obj.users)
+    assert all(post.title.endswith(".") for post in graph_obj.posts)
+    assert graph_obj.users[0].email and "@" in graph_obj.users[0].email
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_user_conftest_overrides_plugin_fixtures(pytester):
+    pytester.makeconftest(
+        '''
+import pytest
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.orm import Session
+
+
+@pytest.fixture()
+def session():
+    engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "connect")
+    def enforce_fk(dbapi_conn, _):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+        dbapi_conn.execute("CREATE TABLE custom_flag (id INTEGER PRIMARY KEY)")
+
+    with Session(engine) as session:
+        yield session
+'''
+    )
+    pytester.makepyfile(
+        f'''
+{MINI_MODELS}
+
+def test_the_conftest_session_wins(session, graph):
+    from sqlalchemy import text
+
+    tables = session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
+    assert ("custom_flag",) in tables
+
+    graph_obj = graph(User, post=1)
+    assert len(graph_obj.users) == 3
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
