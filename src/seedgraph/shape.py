@@ -1,11 +1,17 @@
 """Build the object graph declared by a shape: root count first, children level by level."""
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 from sqlalchemy import inspect
-from sqlalchemy.orm import class_mapper
+from sqlalchemy.orm import DeclarativeBase, class_mapper
+from sqlalchemy.orm.relationships import Relationship
 
 from seedgraph.exceptions import SeedgraphError
 from seedgraph.generators import (
     FieldGenerator,
+    GeneratorMap,
+    OverrideMap,
     UnsupportedPlaceholderError,
     validate_column_declarations,
 )
@@ -43,7 +49,12 @@ class MissingRequiredParentError(SeedgraphError):
     """A required link has no matching ancestor in the branch and was not declared in the shape."""
 
 
-def build_graph(model, shape, generators=None, overrides=None):
+def build_graph(
+    model: type[DeclarativeBase],
+    shape: Mapping[str, int],
+    generators: GeneratorMap | None = None,
+    overrides: OverrideMap | None = None,
+) -> list[Any]:
     """Build the declared shape's objects, level by level, then link every required parent."""
     counts = dict(shape)
     root_key = model.__name__.lower()
@@ -61,7 +72,7 @@ def build_graph(model, shape, generators=None, overrides=None):
     return objects
 
 
-def _resolve_tree(model, counts):
+def _resolve_tree(model: type[DeclarativeBase], counts: Mapping[str, int]) -> dict[str, Any]:
     """Resolve every shape key into a navigated tree — errors fire before anything is built."""
     root = {"children": {}}
     for key, count in counts.items():
@@ -78,7 +89,7 @@ def _resolve_tree(model, counts):
     return root
 
 
-def _resolve_segment(model, segment):
+def _resolve_segment(model: type[DeclarativeBase], segment: str) -> Relationship:
     """Resolve one shape segment: exact relationship key first, then the model it points at."""
     mapper = class_mapper(model)
     exact = [rel for rel in mapper.relationships if rel.key == segment]
@@ -101,7 +112,7 @@ def _resolve_segment(model, segment):
     return _check_relationship(model, segment, relationship)
 
 
-def _check_relationship(model, segment, relationship):
+def _check_relationship(model: type[DeclarativeBase], segment: str, relationship: Relationship) -> Relationship:
     if relationship.direction.name == "MANYTOMANY":
         raise UnsupportedShapeDirectionError(
             f"shape key {segment!r} walks {model.__name__}.{relationship.key}, a many-to-many"
@@ -115,7 +126,9 @@ def _check_relationship(model, segment, relationship):
     return relationship
 
 
-def _attach_children(parent, node, objects, generator, ancestors):
+def _attach_children(
+    parent: Any, node: dict[str, Any], objects: list[Any], generator: FieldGenerator, ancestors: list[Any]
+) -> None:
     branch = [*ancestors, parent]
     for child_node in node["children"].values():
         relationship = child_node["relationship"]
@@ -128,7 +141,7 @@ def _attach_children(parent, node, objects, generator, ancestors):
             _attach_children(child, child_node, objects, generator, branch)
 
 
-def _link_required_parents(obj, ancestors):
+def _link_required_parents(obj: Any, ancestors: Sequence[Any]) -> None:
     """Attach each unset required link to the nearest ancestor of the target type in the branch."""
     state = inspect(obj)
     for relationship in state.mapper.relationships:
@@ -154,17 +167,17 @@ def _link_required_parents(obj, ancestors):
             )
 
 
-def _is_required(relationship):
+def _is_required(relationship: Relationship) -> bool:
     """A link is required when any of its local FK columns is NOT NULL."""
     return any(not local_column.nullable for local_column, _ in relationship.local_remote_pairs)
 
 
-def _check_count(key, count):
+def _check_count(key: str, count: object) -> None:
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         raise InvalidShapeCountError(f"shape count for {key!r} must be an integer >= 0, got {count!r}")
 
 
-def _build_object(model, generator):
+def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> Any:
     """Build one object of the model: generate eligible columns, apply declared overrides elsewhere."""
     obj = model()
     mapper = class_mapper(type(obj))

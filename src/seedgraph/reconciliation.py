@@ -1,11 +1,17 @@
 """Reserve primary keys for pending objects, then reconcile FK columns from their linked parents."""
 
-from sqlalchemy import Integer, inspect
-from sqlalchemy.orm import class_mapper
+from collections.abc import Sequence
+from typing import Any, TypeAlias
+
+from sqlalchemy import Column, Integer, inspect
+from sqlalchemy.orm import Relationship, class_mapper
 
 from seedgraph.exceptions import SeedgraphError
 
 __all__ = ["PendingParentError", "UnsupportedPrimaryKeyError", "reconcile_graph"]
+
+ExistingMaxima: TypeAlias = dict[str, dict[str, int]]
+PkCounters: TypeAlias = dict[tuple[str, str], int]
 
 
 class PendingParentError(SeedgraphError):
@@ -16,13 +22,13 @@ class UnsupportedPrimaryKeyError(SeedgraphError):
     """A pending object carries a primary key column whose type seedgraph cannot reserve."""
 
 
-def reconcile_graph(objects, existing_maxima=None):
+def reconcile_graph(objects: Sequence[Any], existing_maxima: ExistingMaxima | None = None) -> None:
     """Reserve a primary key for every pending object, then copy each linked parent's PK into the child's FK columns."""
     _reserve_primary_keys(objects, existing_maxima or {})
     _reconcile_foreign_keys(objects)
 
 
-def _reserve_primary_keys(objects, maxima):
+def _reserve_primary_keys(objects: Sequence[Any], maxima: ExistingMaxima) -> None:
     counters = {}
     for obj in objects:
         mapper = class_mapper(type(obj))
@@ -33,12 +39,14 @@ def _reserve_primary_keys(objects, maxima):
             setattr(obj, attribute, _next_pk_value(counters, maxima, mapper, column))
 
 
-def _pk_pairs(mapper):
+def _pk_pairs(mapper: Any) -> list[tuple[Column[Any], str]]:
     """Return the primary key as (column, attribute name) pairs."""
     return [(column, mapper.get_property_by_column(column).key) for column in mapper.primary_key]
 
 
-def _next_pk_value(counters, maxima, mapper, column):
+def _next_pk_value(
+    counters: PkCounters, maxima: ExistingMaxima, mapper: Any, column: Column[Any]
+) -> int:
     if not isinstance(column.type, Integer):
         raise UnsupportedPrimaryKeyError(
             f"cannot reserve non-integer primary key {mapper.local_table.key}.{column.key}"
@@ -50,14 +58,14 @@ def _next_pk_value(counters, maxima, mapper, column):
     return counters[key]
 
 
-def _reconcile_foreign_keys(objects):
+def _reconcile_foreign_keys(objects: Sequence[Any]) -> None:
     for obj in objects:
         state = inspect(obj)
         for relationship in state.mapper.relationships:
             _reconcile_relationship(obj, state, relationship)
 
 
-def _reconcile_relationship(obj, state, relationship):
+def _reconcile_relationship(obj: Any, state: Any, relationship: Relationship) -> None:
     if relationship.direction.name == "MANYTOMANY" or relationship.key in state.unloaded:
         return
     value = getattr(obj, relationship.key)
@@ -69,7 +77,13 @@ def _reconcile_relationship(obj, state, relationship):
             _reconcile_pair(obj, related, relationship, local_column, remote_column)
 
 
-def _reconcile_pair(obj, related, relationship, local_column, remote_column):
+def _reconcile_pair(
+    obj: Any,
+    related: Any,
+    relationship: Relationship,
+    local_column: Column[Any],
+    remote_column: Column[Any],
+) -> None:
     flow = _pk_flow(obj, related, local_column, remote_column)
     if flow is None:
         return
@@ -83,7 +97,9 @@ def _reconcile_pair(obj, related, relationship, local_column, remote_column):
     setattr(target, _column_attribute(target, target_column), value)
 
 
-def _pk_flow(obj, related, local_column, remote_column):
+def _pk_flow(
+    obj: Any, related: Any, local_column: Column[Any], remote_column: Column[Any]
+) -> tuple[Any, Column[Any], Any, Column[Any]] | None:
     """Return (source, source column, target, target column) so the value flows PK side to FK side."""
     if local_column.primary_key and remote_column.primary_key:
         if local_column.foreign_keys:
@@ -98,9 +114,9 @@ def _pk_flow(obj, related, local_column, remote_column):
     return None
 
 
-def _column_value(obj, column):
+def _column_value(obj: Any, column: Column[Any]) -> Any:
     return getattr(obj, _column_attribute(obj, column))
 
 
-def _column_attribute(obj, column):
+def _column_attribute(obj: Any, column: Column[Any]) -> str:
     return class_mapper(type(obj)).get_property_by_column(column).key

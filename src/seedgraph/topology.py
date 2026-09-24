@@ -1,25 +1,30 @@
 """FK-graph topology from model metadata: dependency edges, strict parent-first order, cycle refusal."""
 
 import heapq
+from collections.abc import Iterator
+from typing import TypeAlias
 
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, Table
 from sqlalchemy.exc import NoReferencedTableError
+from sqlalchemy.orm import DeclarativeBase
 
 from seedgraph.exceptions import SeedgraphError
 
 __all__ = ["CyclicFKGraphError", "dependency_graph", "metadata_of", "topological_order"]
 
+MetaDataOrModel: TypeAlias = MetaData | type[DeclarativeBase]
+
 
 class CyclicFKGraphError(SeedgraphError):
     """No strict parent-first order exists: tables reference each other in a closed loop."""
 
-    def __init__(self, groups):
+    def __init__(self, groups: Iterator[Iterator[str]]) -> None:
         self.groups = tuple(tuple(group) for group in groups)
         names = " ; ".join("(" + ", ".join(group) + ")" for group in self.groups)
         super().__init__(f"cyclic FK groups prevent a strict parent-first order: {names}")
 
 
-def dependency_graph(source):
+def dependency_graph(source: MetaDataOrModel) -> dict[str, set[str]]:
     """Map every table key to the set of table keys it references through declared FK constraints."""
     metadata = metadata_of(source)
     graph = {key: set() for key in metadata.tables}
@@ -28,7 +33,7 @@ def dependency_graph(source):
     return graph
 
 
-def topological_order(source):
+def topological_order(source: MetaDataOrModel) -> list[Table]:
     """Return the metadata's tables in strict parent-first order, or raise CyclicFKGraphError."""
     metadata = metadata_of(source)
     parent_sets = _ordering_edges(metadata)
@@ -38,7 +43,7 @@ def topological_order(source):
     return [metadata.tables[key] for key in order]
 
 
-def metadata_of(source):
+def metadata_of(source: MetaDataOrModel) -> MetaData:
     """Return the MetaData behind a mapped class, or pass a MetaData through."""
     if isinstance(source, MetaData):
         return source
@@ -48,7 +53,7 @@ def metadata_of(source):
     raise TypeError("source must be a SQLAlchemy mapped class or a MetaData object")
 
 
-def _declared_edges(metadata):
+def _declared_edges(metadata: MetaData) -> Iterator[tuple[str, str, bool]]:
     """Yield (child_key, parent_key, use_alter) for each FK constraint whose target table is in the metadata."""
     for table in metadata.tables.values():
         for constraint in table.foreign_key_constraints:
@@ -64,7 +69,7 @@ def _declared_edges(metadata):
                     yield table.key, parent_key, constraint.use_alter
 
 
-def _ordering_edges(metadata):
+def _ordering_edges(metadata: MetaData) -> dict[str, set[str]]:
     """Map every table key to the parents that must precede it: FK edges minus self-references and use_alter."""
     parent_sets = {key: set() for key in metadata.tables}
     for child, parent, use_alter in _declared_edges(metadata):
@@ -74,7 +79,7 @@ def _ordering_edges(metadata):
     return parent_sets
 
 
-def _kahn_order(parent_sets):
+def _kahn_order(parent_sets: dict[str, set[str]]) -> tuple[list[str], list[str]]:
     """Return (parents-first order, unorderable leftovers); alphabetical tie-break, fully iterative."""
     indegree = {node: len(parents) for node, parents in parent_sets.items()}
     children = {node: [] for node in parent_sets}
@@ -95,7 +100,7 @@ def _kahn_order(parent_sets):
     return order, remaining
 
 
-def _cyclic_groups(remaining, parent_sets):
+def _cyclic_groups(remaining: list[str], parent_sets: dict[str, set[str]]) -> list[list[str]]:
     """Return the closed-loop table groups among remaining nodes, sorted inside and out, without recursion."""
     nodeset = set(remaining)
     forward = {node: [] for node in remaining}
