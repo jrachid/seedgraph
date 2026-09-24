@@ -1,7 +1,7 @@
 """Core 3 scenarios: shape parsing, graph building, and the seed() orchestration."""
 
 import pytest
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Table, Text, create_engine, event
+from sqlalchemy import Column, ForeignKey, Integer, LargeBinary, Table, Text, create_engine, event
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 from _oracle import assert_referentially_consistent
@@ -81,7 +81,7 @@ class Tag(Base):
 class Event(Base):
     __tablename__ = "events"
     id = Column(Integer, primary_key=True)
-    scheduled_at = Column(DateTime, nullable=False)
+    payload = Column(LargeBinary, nullable=False)
 
 
 def _engine():
@@ -106,7 +106,9 @@ def test_seed_builds_root_objects_with_default_count(session):
 
     assert len(graph.users) == 3
     assert [user.id for user in graph.users] == [1, 2, 3]
-    assert [user.name for user in graph.users] == ["users-0", "users-1", "users-2"]
+    names = [user.name for user in graph.users]
+    assert all(" " in name for name in names)
+    assert len(set(names)) == 3
     assert len(session.new) == 3
 
 
@@ -146,7 +148,9 @@ def test_seed_builds_one_level_shape(session):
 
     assert len(graph.users) == 3
     assert len(graph.posts) == 6
-    assert [post.title for post in graph.posts] == [f"posts-{index}" for index in range(6)]
+    titles = [post.title for post in graph.posts]
+    assert all(title.endswith(".") for title in titles)
+    assert len(set(titles)) >= 2
     for user in graph.users:
         assert len(user.posts) == 2
         for post in user.posts:
@@ -215,7 +219,7 @@ def test_unsupported_placeholder_type_raises():
     with pytest.raises(UnsupportedPlaceholderError) as excinfo:
         build_graph(Event, {})
 
-    assert "scheduled_at" in str(excinfo.value)
+    assert "payload" in str(excinfo.value)
 
 
 def test_seed_continues_above_existing_rows(session):

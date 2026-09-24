@@ -1,9 +1,10 @@
 """Build the object graph declared by a shape: root count first, children level by level."""
 
-from sqlalchemy import Integer, String, inspect
+from sqlalchemy import inspect
 from sqlalchemy.orm import class_mapper
 
 from seedgraph.exceptions import SeedgraphError
+from seedgraph.generators import FieldGenerator, UnsupportedPlaceholderError
 
 __all__ = [
     "AmbiguousShapeKeyError",
@@ -38,10 +39,6 @@ class MissingRequiredParentError(SeedgraphError):
     """A required link has no matching ancestor in the branch and was not declared in the shape."""
 
 
-class UnsupportedPlaceholderError(SeedgraphError):
-    """A NOT NULL column without default carries a type seedgraph cannot placeholder."""
-
-
 def build_graph(model, shape):
     """Build the declared shape's objects, level by level, then link every required parent."""
     counts = dict(shape)
@@ -50,12 +47,12 @@ def build_graph(model, shape):
     _check_count(root_key, root_count)
     tree = _resolve_tree(model, counts)
     objects = []
-    placeholders = {}
+    generator = FieldGenerator()
     for _ in range(root_count):
-        root = _build_object(model, placeholders)
+        root = _build_object(model, generator)
         _link_required_parents(root, [])
         objects.append(root)
-        _attach_children(root, tree, objects, placeholders, [])
+        _attach_children(root, tree, objects, generator, [])
     return objects
 
 
@@ -102,17 +99,17 @@ def _resolve_segment(model, segment):
     return relationship
 
 
-def _attach_children(parent, node, objects, placeholders, ancestors):
+def _attach_children(parent, node, objects, generator, ancestors):
     branch = [*ancestors, parent]
     for child_node in node["children"].values():
         relationship = child_node["relationship"]
         count = DEFAULT_COUNT if child_node["count"] is None else child_node["count"]
         for _ in range(count):
-            child = _build_object(relationship.mapper.class_, placeholders)
+            child = _build_object(relationship.mapper.class_, generator)
             getattr(parent, relationship.key).append(child)
             _link_required_parents(child, branch)
             objects.append(child)
-            _attach_children(child, child_node, objects, placeholders, branch)
+            _attach_children(child, child_node, objects, generator, branch)
 
 
 def _link_required_parents(obj, ancestors):
@@ -145,28 +142,12 @@ def _check_count(key, count):
         raise InvalidShapeCountError(f"shape count for {key!r} must be an integer >= 0, got {count!r}")
 
 
-def _build_object(model, placeholders):
-    table_key = class_mapper(model).local_table.key
-    index = placeholders.get(table_key, 0)
-    placeholders[table_key] = index + 1
+def _build_object(model, generator):
+    """Build one object of the model, filling its eligible columns through the generator."""
     obj = model()
-    _fill_placeholders(obj, index)
-    return obj
-
-
-def _fill_placeholders(obj, index):
     mapper = class_mapper(type(obj))
     for column in mapper.local_table.columns:
         if column.nullable or column.default is not None or column.primary_key or column.foreign_keys:
             continue
-        setattr(obj, mapper.get_property_by_column(column).key, _placeholder_value(column, index))
-
-
-def _placeholder_value(column, index):
-    if isinstance(column.type, Integer):
-        return index
-    if isinstance(column.type, String):
-        return f"{column.table.key}-{index}"
-    raise UnsupportedPlaceholderError(
-        f"cannot placeholder NOT NULL column {column.table.key}.{column.key} of type {column.type}"
-    )
+        setattr(obj, mapper.get_property_by_column(column).key, generator.value_for(column))
+    return obj
