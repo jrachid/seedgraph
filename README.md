@@ -64,7 +64,7 @@ assert graph.users[0].posts[0].author_id == graph.users[0].id  # real PK, real F
 - [x] PK reservation/reconciliation across the graph
 - [x] Shape API (`relation=n`, nesting, shared parents)
 - [x] Custom field generators (Faker under the hood)
-- [ ] Overriding specific attributes on generated objects
+- [x] Overriding specific attributes on generated objects
 - [ ] pytest fixture helpers
 - [ ] Self-referential and cyclic FKs
 - [ ] Async sessions support

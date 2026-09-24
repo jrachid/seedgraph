@@ -148,11 +148,17 @@ def _check_count(key, count):
 
 
 def _build_object(model, generator):
-    """Build one object of the model, filling its eligible columns through the generator."""
+    """Build one object of the model: generate eligible columns, apply declared overrides elsewhere."""
     obj = model()
     mapper = class_mapper(type(obj))
     for column in mapper.local_table.columns:
-        if column.nullable or column.default is not None or column.primary_key or column.foreign_keys:
+        if column.primary_key or column.foreign_keys:
             continue
-        setattr(obj, mapper.get_property_by_column(column).key, generator.value_for(model, column))
+        key = mapper.get_property_by_column(column).key
+        if column.nullable or column.default is not None:
+            override = generator.override_for(model, column)
+            if override is not None:
+                setattr(obj, key, override)
+            continue
+        setattr(obj, key, generator.value_for(model, column))
     return obj

@@ -94,9 +94,9 @@ class FieldGenerator:
         self._overrides = overrides or {}
 
     def value_for(self, model, column):
-        override = self._overrides.get(model)
-        if override is not None and column.key in override:
-            return self._resolve(override[column.key], column)
+        override = self.override_for(model, column)
+        if override is not None:
+            return override
         custom = self._generators.get(model)
         if custom is not None and column.key in custom:
             return custom[column.key](GenerationContext(self._fake, column.key))
@@ -109,6 +109,13 @@ class FieldGenerator:
                 f"cannot generate NOT NULL column {column.table.key}.{column.key} of type {column.type}"
             )
         return provider()
+
+    def override_for(self, model, column):
+        """Return the declared override's resolved value for the column, or None when undeclared."""
+        override = self._overrides.get(model)
+        if override is None or column.key not in override:
+            return None
+        return self._resolve(override[column.key], column)
 
     def _resolve(self, value, column):
         if callable(value):
