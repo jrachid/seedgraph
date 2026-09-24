@@ -142,9 +142,15 @@ def _link_required_parents(obj, ancestors):
                 setattr(obj, relationship.key, ancestor)
                 break
         else:
+            advice = (
+                " — make the FK nullable to tie declared children, the first object of a"
+                " self-referential branch cannot have a required parent"
+                if target is type(obj)
+                else ""
+            )
             raise MissingRequiredParentError(
                 f"{type(obj).__name__}.{relationship.key} requires a {target.__name__}, but no"
-                " ancestor of that type is in the branch — provide the parent in the shape"
+                f" ancestor of that type is in the branch — provide the parent in the shape{advice}"
             )
 
 

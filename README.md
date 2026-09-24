@@ -80,7 +80,7 @@ assert graph.users[0].posts[0].author_id == graph.users[0].id  # real PK, real F
 - [x] Custom field generators (Faker under the hood)
 - [x] Overriding specific attributes on generated objects
 - [x] pytest fixture helpers
-- [ ] Self-referential and cyclic FKs
+- [x] Self-referential and cyclic FKs
 - [ ] Async sessions support
 
 ## Installation 🎯
