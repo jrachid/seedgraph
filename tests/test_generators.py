@@ -1,4 +1,6 @@
-"""Core 4 scenarios — tranches 1 et 2: the Faker default layer, then the custom channel."""
+"""Core 4 scenarios — tranches 1 à 3: the Faker default layer, the custom channel, the pins."""
+
+from datetime import date, datetime
 
 import pytest
 from faker import Faker
@@ -11,13 +13,18 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    TypeDecorator,
     create_engine,
     event,
 )
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 from seedgraph import seed
-from seedgraph.generators import GenerationContext, UnknownGeneratorColumnError
+from seedgraph.generators import (
+    GenerationContext,
+    UnknownGeneratorColumnError,
+    UnsupportedPlaceholderError,
+)
 from seedgraph.shape import build_graph
 
 Base = declarative_base()
@@ -183,3 +190,53 @@ def test_generators_keyword_coexists_with_shape(session):
     assert all(post.title == f"custom-{context_column}" for context_column in ["title"] for post in graph.posts)
     for post in graph.posts:
         assert post.author_id == post.author.id
+
+class ExoticTypeDecorator(TypeDecorator):
+    impl = String
+
+    def process_bind_param(self, value, dialect):
+        return value
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id = Column(Integer, primary_key=True)
+    fingerprint = Column(ExoticTypeDecorator(), nullable=False)
+
+
+def test_datetime_boolean_date_columns_are_generated():
+    moments = build_graph(Moment, {"moment": 2})
+
+    assert all(isinstance(moment.scheduled_at, datetime) for moment in moments)
+    assert all(isinstance(moment.all_day, bool) for moment in moments)
+    assert all(isinstance(moment.anniversary, date) for moment in moments)
+
+
+def test_unknown_column_type_still_raises():
+    with pytest.raises(UnsupportedPlaceholderError) as excinfo:
+        build_graph(Document, {"document": 1})
+
+    assert "fingerprint" in str(excinfo.value)
+
+
+def test_pk_and_fk_are_never_generated(session):
+    graph = seed(
+        session,
+        User,
+        post=2,
+        post__comment=1,
+        generators={
+            User: {"id": lambda ctx: "pk-hijacked"},
+            Post: {"id": lambda ctx: "pk-hijacked", "author_id": lambda ctx: "fk-hijacked"},
+            Comment: {"id": lambda ctx: "pk-hijacked", "post_id": lambda ctx: "fk-hijacked"},
+        },
+    )
+
+    assert [user.id for user in graph.users] == [1, 2, 3]
+    for user in graph.users:
+        for post in user.posts:
+            assert isinstance(post.id, int)
+            assert post.author_id == user.id
+            for comment in post.comments:
+                assert isinstance(comment.id, int)
+                assert comment.post_id == post.id
