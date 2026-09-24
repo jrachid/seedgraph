@@ -1,14 +1,21 @@
-"""Field generation: a seeded faker, name heuristics, and type-based fallbacks.
+"""Field generation: a seeded faker, name heuristics, custom overrides, type fallbacks.
 
 Its world is (column, fake) -> value. No session, no shape, no graph.
 """
 
 from faker import Faker
 from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, Text
+from sqlalchemy.orm import class_mapper
 
 from seedgraph.exceptions import SeedgraphError
 
-__all__ = ["FieldGenerator", "GenerationContext", "UnsupportedPlaceholderError"]
+__all__ = [
+    "FieldGenerator",
+    "GenerationContext",
+    "UnknownGeneratorColumnError",
+    "UnsupportedPlaceholderError",
+    "validate_generators",
+]
 
 DEFAULT_SEED = 42
 DEFAULT_LOCALE = "en_US"
@@ -41,6 +48,21 @@ class UnsupportedPlaceholderError(SeedgraphError):
     """A NOT NULL column without default carries a type no generator covers."""
 
 
+class UnknownGeneratorColumnError(SeedgraphError):
+    """A column declared in generators does not exist on its model."""
+
+
+def validate_generators(generators):
+    """Reject any declared column that matches no column of its declared model."""
+    for model, columns in (generators or {}).items():
+        existing = {column.key for column in class_mapper(model).local_table.columns}
+        for column in columns:
+            if column not in existing:
+                raise UnknownGeneratorColumnError(
+                    f"unknown generated column {column!r} for {model.__name__}"
+                )
+
+
 class GenerationContext:
     """The object handed to custom generators: the seeded fake and the column name."""
 
@@ -52,11 +74,15 @@ class GenerationContext:
 class FieldGenerator:
     """Generate values for eligible columns through one seeded Faker instance."""
 
-    def __init__(self):
+    def __init__(self, generators=None):
         self._fake = Faker(locale=DEFAULT_LOCALE)
         self._fake.seed_instance(DEFAULT_SEED)
+        self._generators = generators or {}
 
-    def value_for(self, column):
+    def value_for(self, model, column):
+        custom = self._generators.get(model)
+        if custom is not None and column.key in custom:
+            return custom[column.key](GenerationContext(self._fake, column.key))
         hint = COLUMN_HINTS.get(column.key.lower())
         if hint is not None:
             return getattr(self._fake, hint)()

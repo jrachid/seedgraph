@@ -4,7 +4,7 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import class_mapper
 
 from seedgraph.exceptions import SeedgraphError
-from seedgraph.generators import FieldGenerator, UnsupportedPlaceholderError
+from seedgraph.generators import FieldGenerator, UnsupportedPlaceholderError, validate_generators
 
 __all__ = [
     "AmbiguousShapeKeyError",
@@ -39,15 +39,16 @@ class MissingRequiredParentError(SeedgraphError):
     """A required link has no matching ancestor in the branch and was not declared in the shape."""
 
 
-def build_graph(model, shape):
+def build_graph(model, shape, generators=None):
     """Build the declared shape's objects, level by level, then link every required parent."""
     counts = dict(shape)
     root_key = model.__name__.lower()
     root_count = counts.pop(root_key, DEFAULT_COUNT)
     _check_count(root_key, root_count)
     tree = _resolve_tree(model, counts)
+    validate_generators(generators)
     objects = []
-    generator = FieldGenerator()
+    generator = FieldGenerator(generators)
     for _ in range(root_count):
         root = _build_object(model, generator)
         _link_required_parents(root, [])
@@ -149,5 +150,5 @@ def _build_object(model, generator):
     for column in mapper.local_table.columns:
         if column.nullable or column.default is not None or column.primary_key or column.foreign_keys:
             continue
-        setattr(obj, mapper.get_property_by_column(column).key, generator.value_for(column))
+        setattr(obj, mapper.get_property_by_column(column).key, generator.value_for(model, column))
     return obj

@@ -14,9 +14,9 @@ __version__ = "0.1.0.dev0"
 __all__ = ["__version__", "seed"]
 
 
-def seed(session, model, /, **shape):
+def seed(session, model, /, generators=None, **shape):
     """Seed a referentially-consistent object graph from the declared shape."""
-    objects = build_graph(model, shape)
+    objects = build_graph(model, shape, generators=generators)
     reconcile_graph(objects, existing_maxima=existing_maxima(session, model))
     session.add_all(objects)
     return Graph(objects)
