@@ -13,8 +13,9 @@ __all__ = [
     "FieldGenerator",
     "GenerationContext",
     "UnknownGeneratorColumnError",
+    "UnknownOverrideColumnError",
     "UnsupportedPlaceholderError",
-    "validate_generators",
+    "validate_column_declarations",
 ]
 
 DEFAULT_SEED = 42
@@ -52,15 +53,27 @@ class UnknownGeneratorColumnError(SeedgraphError):
     """A column declared in generators does not exist on its model."""
 
 
+class UnknownOverrideColumnError(SeedgraphError):
+    """A column declared in overrides does not exist on its model."""
+
+
 def validate_generators(generators):
     """Reject any declared column that matches no column of its declared model."""
-    for model, columns in (generators or {}).items():
-        existing = {column.key for column in class_mapper(model).local_table.columns}
-        for column in columns:
-            if column not in existing:
-                raise UnknownGeneratorColumnError(
-                    f"unknown generated column {column!r} for {model.__name__}"
-                )
+    validate_column_declarations(generators, None)
+
+
+def validate_column_declarations(generators, overrides):
+    """Reject any declared column that matches no column of its declared model."""
+    errors = (
+        (generators, UnknownGeneratorColumnError, "generated"),
+        (overrides, UnknownOverrideColumnError, "overridden"),
+    )
+    for declarations, error, verb in errors:
+        for model, columns in (declarations or {}).items():
+            existing = {column.key for column in class_mapper(model).local_table.columns}
+            for column in columns:
+                if column not in existing:
+                    raise error(f"unknown {verb} column {column!r} for {model.__name__}")
 
 
 class GenerationContext:
@@ -74,12 +87,16 @@ class GenerationContext:
 class FieldGenerator:
     """Generate values for eligible columns through one seeded Faker instance."""
 
-    def __init__(self, generators=None):
+    def __init__(self, generators=None, overrides=None):
         self._fake = Faker(locale=DEFAULT_LOCALE)
         self._fake.seed_instance(DEFAULT_SEED)
         self._generators = generators or {}
+        self._overrides = overrides or {}
 
     def value_for(self, model, column):
+        override = self._overrides.get(model)
+        if override is not None and column.key in override:
+            return self._resolve(override[column.key], column)
         custom = self._generators.get(model)
         if custom is not None and column.key in custom:
             return custom[column.key](GenerationContext(self._fake, column.key))
@@ -92,6 +109,11 @@ class FieldGenerator:
                 f"cannot generate NOT NULL column {column.table.key}.{column.key} of type {column.type}"
             )
         return provider()
+
+    def _resolve(self, value, column):
+        if callable(value):
+            return value(GenerationContext(self._fake, column.key))
+        return value
 
     def _type_provider(self, column):
         if isinstance(column.type, Integer):
