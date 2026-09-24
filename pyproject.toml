@@ -26,6 +26,9 @@ dependencies = ["sqlalchemy>=2.0", "faker>=40,<41"]
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 
+[project.entry-points.pytest11]
+seedgraph = "seedgraph.pytest_plugin"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/seedgraph"]
 
