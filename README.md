@@ -40,7 +40,7 @@ They create linked objects. Three differences survive a closer look:
 
 ## Quick start
 
-Declare a **shape** from a root model; each key walks a one-to-many relationship, by relationship name or by target class name:
+Declare a **shape** from a root model; each key walks a one-to-many or many-to-many relationship, by relationship name or by target class name:
 
 ```python
 from seedgraph import seed
@@ -65,7 +65,16 @@ graph = seed(session, Post, parents=[alice])   # every post's author is alice; a
 graph = seed(session, Comment)   # one Post and one User are generated, shared by all comments
 ```
 
-A link first takes the nearest ancestor of its type in the shape, then the object of that type passed in `parents` (optional links included). A required link still empty gets **one** generated parent per type, shared by every object that needs it.
+A link first takes the nearest ancestor of its type in the shape, then the object of that type passed in `parents` (optional links included). A required link still empty gets **one** generated parent per type, shared by every object that needs it. Several objects of one type are accepted in `parents`; a link towards a single parent refuses to choose between them with `AmbiguousParentError`.
+
+### Many-to-many
+
+```python
+graph = seed(session, Article, article=5, tags=3)            # 15 new tags, 3 per article
+graph = seed(session, Article, article=5, parents=[python, sql])   # every article tagged with both existing tags
+```
+
+A count keeps its one-to-many meaning: new objects for each parent. Objects passed in `parents` join every many-to-many collection of their type, next to the ones the shape builds. SQLAlchemy writes the association rows itself.
 
 ### Pinning and generating values
 
@@ -105,17 +114,20 @@ async def test_feed_async(seedgraph_agraph):
 | Two sessions seeding the same tables at once do not collide | `test_postgres.py::test_two_sessions_seeding_the_same_tables_at_once_do_not_collide` |
 | Unique columns skip values already in the database | `test_unique.py::test_a_new_session_on_a_populated_database_skips_the_values_already_taken`, `::test_postgres_rows_from_an_earlier_run_do_not_block_a_new_seed` |
 | Same seed, same values; consecutive calls do not repeat | `test_generators.py::test_a_new_session_replays_the_same_values`, `::test_two_seeds_in_one_session_continue_the_same_faker_sequence` |
-| Generated values fit the column type (enum, length, precision) | `test_types.py` |
+| Generated values fit the column type (enum, length, precision, arrays) | `test_types.py` |
+| Many-to-many shapes build new objects per parent; existing objects are shared | `test_many_to_many.py::test_a_many_to_many_count_builds_new_objects_for_each_parent`, `::test_existing_objects_passed_as_parents_are_shared_by_every_generated_object` |
+| Natural and composite primary keys are generated and never collide | `test_verification.py::test_a_natural_text_key_is_generated`, `::test_natural_keys_skip_the_ones_already_in_the_database`, `::test_a_composite_integer_key_and_its_composite_foreign_key_are_generated` |
+| Multi-column unique constraints hold | `test_unique.py::test_many_rows_under_one_parent_keep_a_multi_column_constraint`, `::test_a_second_session_keeps_a_multi_column_constraint` |
 | Existing rows serve as parents; missing required parents are generated once | `test_parents.py::test_a_parent_already_in_the_database_is_linked_and_left_out_of_the_graph`, `::test_a_child_seeded_alone_gets_one_generated_parent_shared_by_all` |
 | Plugin fixtures live beside a project's own `session` and `graph` | `test_fixtures.py::test_the_prefixed_fixtures_live_beside_a_project_own_session_and_graph` |
 
 ## Limits
 
 - **`seed()` flushes the session.** The keys come from the database; the objects are no longer pending when it returns.
-- **Shapes walk one-to-many relationships only.** Many-to-many and many-to-one keys are refused with a message saying why.
-- **A primary key the database cannot fill** (natural text key, composite integer key) must be given through `overrides`, otherwise `UnsupportedPrimaryKeyError` says so.
-- **Required columns of uncovered types** (JSON, ARRAY, custom types) raise `UnsupportedPlaceholderError`; declare a generator for them. Nullable ones are left empty.
-- **Uniqueness is per column.** Multi-column unique constraints are not checked before writing.
+- **A shape key towards a parent is refused**, as parents are linked or generated on their own; pass existing ones in `parents`. View-only relationships are refused too, since nothing would be written.
+- **Required columns of uncovered types** (JSON, custom `TypeDecorator`, arrays of those) raise `UnsupportedPlaceholderError`; declare a generator for them. Nullable ones are left empty.
+- **A multi-column unique constraint whose generated columns are only booleans or enums** is left to the database. For the others, one generated column is kept unique on its own, which is stricter than the constraint.
+- **An association class whose primary key combines its two foreign keys** holds one row per parent pair: the generated parent is shared, so two rows under the same parent collide. Seed one per parent, or use a many-to-many relationship.
 - **A loop of required links between tables**, or a required link to its own table, cannot be generated; pass one side in `parents`.
 - **Determinism holds for a given Faker version.** Faker may change its data between releases.
 
@@ -138,6 +150,7 @@ async def test_feed_async(seedgraph_agraph):
 - [x] Async sessions support
 - [x] Database-assigned keys and post-flush verification, PostgreSQL in the test suite
 - [x] Type-valid values, uniqueness against existing rows, existing and generated parents
+- [x] Many-to-many shapes, generated natural keys, multi-column uniqueness, arrays
 - [ ] Publication on PyPI
 
 ## Installation
