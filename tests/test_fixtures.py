@@ -225,3 +225,69 @@ def test_the_conftest_session_wins(session, graph):
     result = pytester.runpytest_subprocess()
 
     result.assert_outcomes(passed=1)
+
+
+def test_async_fixtures_served_without_configuration(pytester):
+    pytester.makepyprojecttoml('[tool.pytest.ini_options]\nasyncio_mode = "auto"\n')
+    pytester.makepyfile(
+        f'''
+{MINI_MODELS}
+
+async def test_async_world(asession, agraph):
+    graph_obj = await agraph(User, post=2)
+
+    assert len(graph_obj.users) == 3
+    assert len(graph_obj.posts) == 6
+    await asession.flush()
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_async_graph_accepts_channels_and_restarts_above_rows(pytester):
+    pytester.makepyprojecttoml('[tool.pytest.ini_options]\nasyncio_mode = "auto"\n')
+    pytester.makepyfile(
+        f'''
+{MINI_MODELS}
+
+async def test_channels_and_boundary(agraph, asession):
+    first = await agraph(User, post=1, generators={{User: {{"name": lambda ctx: "custom"}}}},
+                         overrides={{Post: {{"title": "imposed"}}}})
+    assert all(user.name == "custom" for user in first.users)
+    assert all(post.title == "imposed" for post in first.posts)
+
+    asession.add_all([User(id=50, name="legacy", email="legacy@x")])
+    await asession.commit()
+
+    second = await agraph(User, post=1)
+    await asession.flush()
+    assert [user.id for user in second.users] == [51, 52, 53]
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_missing_aiosqlite_leaves_sync_suites_green(pytester):
+    pytester.makeconftest(
+        '''
+import sys
+
+sys.modules["aiosqlite"] = None
+'''
+    )
+    pytester.makepyfile(
+        '''
+def test_plain_sync_math():
+    assert 1 + 1 == 2
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
