@@ -39,6 +39,7 @@ __all__ = [
     "UnknownGeneratorColumnError",
     "UnknownOverrideColumnError",
     "UnsupportedPlaceholderError",
+    "database_fills",
     "generation_state",
     "is_unique",
     "validate_column_declarations",
@@ -56,6 +57,7 @@ MAX_NUMERIC_RIGHT_DIGITS = 2
 MAX_FLOAT_LEFT_DIGITS = 4
 BINARY_LENGTH = 16
 MAX_UNIQUE_ATTEMPTS = 100
+MAX_UNIQUE_INTEGER = 2**31 - 1
 
 ColumnGenerator: TypeAlias = Callable[["GenerationContext"], Any]
 ColumnOverride: TypeAlias = ColumnGenerator | Any
@@ -211,6 +213,8 @@ class FieldGenerator:
         return value
 
     def _provider(self, column: Column[Any]) -> Callable[[], Any] | None:
+        if isinstance(column.type, Integer) and is_unique(column):
+            return lambda: self._fake.random_int(min=1, max=MAX_UNIQUE_INTEGER)
         if _is_text(column.type):
             hint = COLUMN_HINTS.get(column.key.lower())
             if hint is not None:
@@ -254,13 +258,21 @@ class FieldGenerator:
 
 @cache
 def is_unique(column: Column[Any]) -> bool:
-    """A column is unique on its own through its flag, a one-column unique constraint or a unique index."""
-    if column.unique:
+    """A column is unique on its own through its flag, a one-column unique constraint or a unique index.
+
+    A primary key column the database does not fill counts too: each generated key column is kept unique alone.
+    """
+    if column.unique or (column.primary_key and not column.foreign_keys and not database_fills(column)):
         return True
     table = column.table
     constraints = [constraint.columns for constraint in table.constraints if isinstance(constraint, UniqueConstraint)]
     indexes = [index.columns for index in table.indexes if index.unique]
     return any(len(columns) == 1 and next(iter(columns)) is column for columns in constraints + indexes)
+
+
+def database_fills(column: Column[Any]) -> bool:
+    """The database, or the column's own default, gives the value when seedgraph leaves it empty."""
+    return column is column.table.autoincrement_column or column.default is not None or column.server_default is not None
 
 
 def _is_text(type_: TypeEngine[Any]) -> bool:

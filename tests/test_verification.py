@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from sqlalchemy import (
+    JSON,
     Column,
     ForeignKey,
     ForeignKeyConstraint,
@@ -19,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 from _oracle import assert_referentially_consistent
-from seedgraph import IncoherentGraphError, UnsupportedPrimaryKeyError, seed
+from seedgraph import IncoherentGraphError, UnsupportedPlaceholderError, seed
 from seedgraph.verification import verify_graph
 
 Base = declarative_base()
@@ -58,6 +59,11 @@ class Employee(Base):
 class Tag(Base):
     __tablename__ = "tags"
     code = Column(Text, primary_key=True)
+
+
+class Snapshot(Base):
+    __tablename__ = "snapshots"
+    payload = Column(JSON, primary_key=True)
 
 
 class Token(Base):
@@ -127,9 +133,38 @@ def test_a_uuid_primary_key_with_a_default_is_filled_by_its_default(session):
     assert all(isinstance(token.id, uuid.UUID) for token in graph.tokens)
 
 
-def test_a_primary_key_the_database_cannot_fill_asks_for_an_override(session):
-    with pytest.raises(UnsupportedPrimaryKeyError, match="tags.code.*overrides"):
-        seed(session, Tag)
+def test_a_natural_text_key_is_generated(session):
+    graph = seed(session, Tag)
+
+    assert len({tag.code for tag in graph.tags}) == 3
+
+
+def test_natural_keys_skip_the_ones_already_in_the_database(session):
+    seed(session, Tag)
+    session.commit()
+    with Session(session.get_bind()) as other:
+        seed(other, Tag)
+        other.commit()
+
+    assert session.scalar(select(func.count(func.distinct(Tag.code)))) == 6
+
+
+def test_a_composite_integer_key_and_its_composite_foreign_key_are_generated(session):
+    graph = seed(session, Order, order=2, items=2)
+
+    assert_referentially_consistent(graph.orders + graph.order_items)
+    assert len({(order.k1, order.k2) for order in graph.orders}) == 2
+
+
+def test_hundreds_of_rows_with_a_composite_key_do_not_run_out_of_values(session):
+    graph = seed(session, Order, order=500)
+
+    assert len(graph.orders) == 500
+
+
+def test_a_primary_key_of_an_uncovered_type_is_refused(session):
+    with pytest.raises(UnsupportedPlaceholderError, match="snapshots.payload"):
+        seed(session, Snapshot)
 
 
 def test_an_overridden_natural_primary_key_is_used(session):

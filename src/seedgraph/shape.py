@@ -15,6 +15,7 @@ from seedgraph.generators import (
     GeneratorMap,
     OverrideMap,
     UnsupportedPlaceholderError,
+    database_fills,
     validate_column_declarations,
 )
 
@@ -25,7 +26,6 @@ __all__ = [
     "MissingRequiredParentError",
     "UnknownShapeKeyError",
     "UnsupportedPlaceholderError",
-    "UnsupportedPrimaryKeyError",
     "UnsupportedShapeDirectionError",
     "build_graph",
 ]
@@ -55,10 +55,6 @@ class MissingRequiredParentError(SeedgraphError):
 
 class AmbiguousParentError(SeedgraphError):
     """A link towards a single parent finds several objects of its type among the provided parents."""
-
-
-class UnsupportedPrimaryKeyError(SeedgraphError):
-    """A primary key column the database does not fill has no override to take its value from."""
 
 
 def build_graph(
@@ -278,13 +274,6 @@ def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> An
 def _fill_primary_key(
     obj: Any, key: str, model: type[DeclarativeBase], column: Column[Any], generator: FieldGenerator
 ) -> None:
-    if column is column.table.autoincrement_column or column.default is not None or column.server_default is not None:
+    if database_fills(column):
         return
-    override = generator.override_for(model, column)
-    if override is not UNSET:
-        setattr(obj, key, override)
-        return
-    raise UnsupportedPrimaryKeyError(
-        f"cannot fill primary key {column.table.key}.{column.key}: the database does not generate it"
-        " — give the column a default or declare its value in overrides"
-    )
+    setattr(obj, key, generator.value_for(model, column))

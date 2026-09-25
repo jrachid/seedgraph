@@ -34,7 +34,6 @@ from seedgraph.shape import (
     InvalidShapeCountError,
     MissingRequiredParentError,
     UnknownShapeKeyError,
-    UnsupportedPrimaryKeyError,
     UnsupportedShapeDirectionError,
     build_graph,
 )
@@ -57,7 +56,6 @@ __all__ = [
     "UnknownOverrideColumnError",
     "UnknownShapeKeyError",
     "UnsupportedPlaceholderError",
-    "UnsupportedPrimaryKeyError",
     "UnsupportedShapeDirectionError",
     "__version__",
     "seed",

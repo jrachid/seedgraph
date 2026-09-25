@@ -23,7 +23,7 @@ class UniqueRepair:
         for obj in objects:
             mapper = class_mapper(type(obj))
             for column in mapper.local_table.columns:
-                if column.primary_key or column.foreign_keys or not is_unique(column):
+                if column.foreign_keys or not is_unique(column):
                     continue
                 if generator.is_overridden(type(obj), column):
                     continue
