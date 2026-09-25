@@ -173,3 +173,10 @@ def test_a_parent_from_postgres_is_linked(pg_session):
 
     assert pg_session.scalar(select(func.count()).select_from(User)) == 1
     assert pg_session.scalar(select(func.count()).select_from(Post).where(Post.author_id == alice.id)) == 3
+
+
+def test_two_candidates_for_an_optional_link_are_refused_too(session):
+    session.add_all([alice := User(name="alice"), bob := User(name="bob")])
+
+    with pytest.raises(AmbiguousParentError, match="Review.reviewer"):
+        seed(session, Review, parents=[alice, bob])

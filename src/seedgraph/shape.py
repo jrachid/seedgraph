@@ -54,7 +54,7 @@ class MissingRequiredParentError(SeedgraphError):
 
 
 class AmbiguousParentError(SeedgraphError):
-    """Several objects of the same type were provided as parents."""
+    """A link towards a single parent finds several objects of its type among the provided parents."""
 
 
 class UnsupportedPrimaryKeyError(SeedgraphError):
@@ -174,6 +174,11 @@ class _ParentLinker:
     def link(self, obj: Any, ancestors: Sequence[Any]) -> None:
         state = inspect(obj)
         for relationship in state.mapper.relationships:
+            if relationship.viewonly:
+                continue
+            if relationship.direction.name == "MANYTOMANY":
+                self._share(obj, relationship)
+                continue
             if relationship.direction.name != "MANYTOONE":
                 continue
             if relationship.key not in state.unloaded and getattr(obj, relationship.key) is not None:
@@ -189,8 +194,14 @@ class _ParentLinker:
             for ancestor in reversed(ancestors):
                 if type(ancestor) is target:
                     return ancestor
-        if target in self._provided:
-            return self._provided[target]
+        candidates = self._provided.get(target, [])
+        if len(candidates) > 1:
+            raise AmbiguousParentError(
+                f"{type(obj).__name__}.{relationship.key} links one {target.__name__}, but {len(candidates)}"
+                " were passed in parents — pass one"
+            )
+        if candidates:
+            return candidates[0]
         if not required:
             return None
         if target in self._generated:
@@ -198,6 +209,12 @@ class _ParentLinker:
         if target is type(obj) or target in self._in_progress:
             raise MissingRequiredParentError(self._unreachable(obj, relationship, target))
         return self._generate(target)
+
+    def _share(self, obj: Any, relationship: Relationship) -> None:
+        collection = getattr(obj, relationship.key)
+        for shared in self._provided.get(relationship.mapper.class_, []):
+            if shared not in collection:
+                collection.append(shared)
 
     def _generate(self, target: type[DeclarativeBase]) -> Any:
         self._in_progress.append(target)
@@ -219,13 +236,10 @@ class _ParentLinker:
         return f"{where}, but required links form a loop ({loop}) — pass one of them in parents"
 
 
-def _index_parents(parents: Sequence[Any]) -> dict[type, Any]:
-    provided: dict[type, Any] = {}
+def _index_parents(parents: Sequence[Any]) -> dict[type, list[Any]]:
+    provided: dict[type, list[Any]] = {}
     for parent in parents:
-        kind = type(parent)
-        if kind in provided:
-            raise AmbiguousParentError(f"several {kind.__name__} objects were passed in parents — pass one per type")
-        provided[kind] = parent
+        provided.setdefault(type(parent), []).append(parent)
     return provided
 
 

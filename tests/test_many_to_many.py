@@ -147,3 +147,58 @@ def test_many_to_many_rows_are_written_on_postgres(pg_session):
     pg_session.commit()
 
     assert _links(pg_session) == 15
+
+
+def test_existing_objects_passed_as_parents_are_shared_by_every_generated_object(session):
+    python, sql = Tag(name="python"), Tag(name="sql")
+    session.add_all([python, sql])
+    session.commit()
+
+    graph = seed(session, Article, article=4, parents=[python, sql])
+
+    assert all(set(article.tags) == {python, sql} for article in graph.articles)
+    assert graph.tags == []
+    assert _links(session) == 8
+
+
+def test_shared_parents_add_to_the_objects_the_shape_builds(session):
+    python = Tag(name="python")
+    session.add(python)
+
+    graph = seed(session, Article, article=2, tags=2, parents=[python])
+
+    assert all(len(article.tags) == 3 and python in article.tags for article in graph.articles)
+    assert len(graph.tags) == 4
+
+
+async def test_the_async_facade_shares_an_existing_object():
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    from seedgraph import seed_async
+
+    engine = create_async_engine("sqlite+aiosqlite://")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    async with AsyncSession(engine) as session:
+        python = Tag(name="python")
+        session.add(python)
+        await session.commit()
+
+        await seed_async(session, Article, article=3, parents=[python])
+        await session.commit()
+
+        assert await session.scalar(select(func.count()).select_from(articles_tags)) == 3
+    await engine.dispose()
+
+
+@pytest.mark.postgres
+def test_existing_objects_are_shared_on_postgres(pg_session):
+    Base.metadata.create_all(pg_session.get_bind())
+    python, sql = Tag(name="python"), Tag(name="sql")
+    pg_session.add_all([python, sql])
+    pg_session.commit()
+
+    seed(pg_session, Article, article=5, parents=[python, sql])
+    pg_session.commit()
+
+    assert _links(pg_session) == 10
