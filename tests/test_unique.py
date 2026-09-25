@@ -1,8 +1,13 @@
 """Core 10 — T6: unique columns stay unique across calls, sessions and rows already in the database."""
 
+import enum
+
 import pytest
 from sqlalchemy import (
+    Boolean,
     Column,
+    Enum,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -14,9 +19,10 @@ from sqlalchemy import (
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import Session, declarative_base
+from sqlalchemy.orm import Session, declarative_base, relationship
 
 from seedgraph import UniqueValueExhaustedError, seed, seed_async
+from seedgraph.generators import is_unique
 
 Base = declarative_base()
 
@@ -114,3 +120,88 @@ def test_postgres_rows_from_an_earlier_run_do_not_block_a_new_seed(pg_session):
             session.commit()
 
     assert pg_session.scalar(select(func.count(func.distinct(Member.email)))) == 100
+
+
+class Locale(enum.Enum):
+    EN = "en"
+    FR = "fr"
+
+
+class Org(Base):
+    __tablename__ = "orgs"
+    id = Column(Integer, primary_key=True)
+    pages = relationship("Page", back_populates="org")
+    guides = relationship("Guide", back_populates="org")
+    seats = relationship("Seat", back_populates="org")
+
+
+class Page(Base):
+    __tablename__ = "pages"
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("orgs.id"), nullable=False)
+    position = Column(Integer, nullable=False)
+    org = relationship("Org", back_populates="pages")
+    __table_args__ = (UniqueConstraint("org_id", "position"),)
+
+
+class Guide(Base):
+    __tablename__ = "guides"
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("orgs.id"), nullable=False)
+    slug = Column(String(60), nullable=False)
+    locale = Column(Enum(Locale), nullable=False)
+    org = relationship("Org", back_populates="guides")
+    __table_args__ = (Index("ix_guides_slug_locale", "slug", "locale", unique=True),)
+
+
+class Seat(Base):
+    __tablename__ = "seats"
+    id = Column(Integer, primary_key=True)
+    org_id = Column(Integer, ForeignKey("orgs.id"), nullable=False)
+    is_primary = Column(Boolean, nullable=False)
+    org = relationship("Org", back_populates="seats")
+    __table_args__ = (UniqueConstraint("org_id", "is_primary"),)
+
+
+def test_many_rows_under_one_parent_keep_a_multi_column_constraint(engine):
+    with Session(engine) as session:
+        graph = seed(session, Org, org=1, pages=50)
+        session.commit()
+
+        assert len({page.position for page in graph.pages}) == 50
+
+
+def test_the_generated_column_with_the_widest_values_carries_the_constraint():
+    assert is_unique(Page.__table__.c.position)
+    assert is_unique(Guide.__table__.c.slug)
+    assert not is_unique(Guide.__table__.c.locale)
+
+
+def test_a_constraint_made_only_of_booleans_and_enums_is_left_to_the_database(engine):
+    assert not is_unique(Seat.__table__.c.is_primary)
+
+    with Session(engine) as session:
+        graph = seed(session, Org, org=2, seats=1)
+        session.commit()
+
+        assert len(graph.seats) == 2
+
+
+def test_a_second_session_keeps_a_multi_column_constraint(engine):
+    for _ in range(2):
+        with Session(engine) as session:
+            seed(session, Org, org=1, pages=20)
+            session.commit()
+
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(Page)) == 40
+
+
+@pytest.mark.postgres
+def test_a_multi_column_constraint_holds_on_postgres(pg_session):
+    Base.metadata.create_all(pg_session.get_bind())
+
+    seed(pg_session, Org, org=2, pages=50, guides=20)
+    pg_session.commit()
+
+    assert pg_session.scalar(select(func.count()).select_from(Page)) == 100

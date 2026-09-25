@@ -20,6 +20,7 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     String,
+    Table,
     Time,
     UniqueConstraint,
     Uuid,
@@ -258,16 +259,46 @@ class FieldGenerator:
 
 @cache
 def is_unique(column: Column[Any]) -> bool:
-    """A column is unique on its own through its flag, a one-column unique constraint or a unique index.
+    """A generated column seedgraph keeps unique alone: flagged, alone in a unique constraint or index, or chosen for one.
 
-    A primary key column the database does not fill counts too: each generated key column is kept unique alone.
+    A key column the database does not fill counts; in a multi-column constraint, the generated column with the widest values is chosen.
     """
     if column.unique or (column.primary_key and not column.foreign_keys and not database_fills(column)):
         return True
-    table = column.table
-    constraints = [constraint.columns for constraint in table.constraints if isinstance(constraint, UniqueConstraint)]
-    indexes = [index.columns for index in table.indexes if index.unique]
-    return any(len(columns) == 1 and next(iter(columns)) is column for columns in constraints + indexes)
+    return any(_carrier(columns) is column for columns in _unique_column_sets(column.table))
+
+
+def _unique_column_sets(table: Table) -> list[list[Column[Any]]]:
+    constraints = [list(c.columns) for c in table.constraints if isinstance(c, UniqueConstraint)]
+    return constraints + [list(index.columns) for index in table.indexes if index.unique]
+
+
+_VALUE_SPACE = ["text", "identifier", "number", "moment"]
+
+
+def _carrier(columns: list[Column[Any]]) -> Column[Any] | None:
+    if len(columns) == 1:
+        return columns[0]
+    candidates = [
+        column
+        for column in columns
+        if not column.foreign_keys and not database_fills(column) and _value_space(column.type) is not None
+    ]
+    return min(candidates, key=lambda column: _VALUE_SPACE.index(_value_space(column.type)), default=None)
+
+
+def _value_space(type_: TypeEngine[Any]) -> str | None:
+    if isinstance(type_, (Enum, Boolean)):
+        return None
+    if isinstance(type_, String):
+        return "text"
+    if isinstance(type_, (Uuid, LargeBinary)):
+        return "identifier"
+    if isinstance(type_, (Integer, Numeric)):
+        return "number"
+    if isinstance(type_, (Date, DateTime, Time, Interval)):
+        return "moment"
+    return None
 
 
 def database_fills(column: Column[Any]) -> bool:
