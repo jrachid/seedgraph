@@ -577,7 +577,7 @@ dev = [
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'dev'", specifier = ">=0.17" },
     { name = "asyncpg", marker = "extra == 'dev'", specifier = ">=0.29" },
-    { name = "faker", specifier = ">=40,<41" },
+    { name = "faker", specifier = ">=30" },
     { name = "greenlet", marker = "extra == 'dev'", specifier = ">=3.0" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'dev'", specifier = ">=3.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

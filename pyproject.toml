@@ -21,7 +21,7 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Software Development :: Testing",
 ]
-dependencies = ["sqlalchemy>=2.0", "faker>=40,<41"]
+dependencies = ["sqlalchemy>=2.0", "faker>=30"]
 
 [project.optional-dependencies]
 dev = [
