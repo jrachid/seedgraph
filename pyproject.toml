@@ -24,7 +24,16 @@ classifiers = [
 dependencies = ["sqlalchemy>=2.0", "faker>=40,<41"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.6", "aiosqlite>=0.17", "pytest-asyncio>=0.23", "greenlet>=3.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "aiosqlite>=0.17",
+    "pytest-asyncio>=0.23",
+    "greenlet>=3.0",
+    "testcontainers[postgres]>=4.0",
+    "psycopg[binary]>=3.1",
+    "asyncpg>=0.29",
+]
 
 [project.entry-points.pytest11]
 seedgraph = "seedgraph.pytest_plugin"
@@ -35,6 +44,7 @@ packages = ["src/seedgraph"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["postgres: needs Docker to start a disposable PostgreSQL"]
 
 [tool.ruff]
 line-length = 100
