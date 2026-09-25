@@ -196,12 +196,14 @@ def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> An
         if column.primary_key:
             _fill_primary_key(obj, key, model, column, generator)
             continue
-        if column.nullable or column.default is not None:
+        if column.default is not None or column.server_default is not None:
             override = generator.override_for(model, column)
             if override is not UNSET:
                 setattr(obj, key, override)
             continue
-        setattr(obj, key, generator.value_for(model, column))
+        value = generator.value_for(model, column)
+        if value is not UNSET:
+            setattr(obj, key, value)
     return obj
 
 

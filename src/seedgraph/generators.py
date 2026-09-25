@@ -7,8 +7,23 @@ from collections.abc import Callable
 from typing import Any, TypeAlias
 
 from faker import Faker
-from sqlalchemy import Boolean, Column, Date, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Enum,
+    Float,
+    Integer,
+    Interval,
+    LargeBinary,
+    Numeric,
+    String,
+    Time,
+    Uuid,
+)
 from sqlalchemy.orm import class_mapper
+from sqlalchemy.types import TypeEngine
 
 from seedgraph.exceptions import SeedgraphError
 
@@ -34,6 +49,8 @@ UNSET: Any = object()
 MAX_INTEGER = 100
 MAX_NUMERIC_LEFT_DIGITS = 6
 MAX_NUMERIC_RIGHT_DIGITS = 2
+MAX_FLOAT_LEFT_DIGITS = 4
+BINARY_LENGTH = 16
 
 ColumnGenerator: TypeAlias = Callable[["GenerationContext"], Any]
 ColumnOverride: TypeAlias = ColumnGenerator | Any
@@ -127,21 +144,21 @@ class FieldGenerator:
         self._overrides: OverrideMap = overrides or {}
 
     def value_for(self, model: type, column: Column[Any]) -> Any:
+        """Return the column's value, or UNSET for a nullable column of a type no provider covers."""
         override = self.override_for(model, column)
         if override is not UNSET:
             return override
         custom = self._generators.get(model)
         if custom is not None and column.key in custom:
             return custom[column.key](GenerationContext(self._fake, column.key))
-        hint = COLUMN_HINTS.get(column.key.lower())
-        if hint is not None:
-            return getattr(self._fake, hint)()
-        provider = self._type_provider(column)
+        provider = self._provider(column)
         if provider is None:
+            if column.nullable:
+                return UNSET
             raise UnsupportedPlaceholderError(
                 f"cannot generate NOT NULL column {column.table.key}.{column.key} of type {column.type}"
             )
-        return provider()
+        return _fit(provider(), column.type)
 
     def override_for(self, model: type, column: Column[Any]) -> Any:
         """Return the declared override's resolved value for the column, or UNSET when undeclared."""
@@ -155,19 +172,54 @@ class FieldGenerator:
             return value(GenerationContext(self._fake, column.key))
         return value
 
-    def _type_provider(self, column: Column[Any]) -> Callable[[], Any] | None:
-        if isinstance(column.type, Integer):
-            return lambda: self._fake.random_int(min=0, max=MAX_INTEGER)
-        if isinstance(column.type, Numeric):
-            return lambda: self._fake.pydecimal(
-                left_digits=MAX_NUMERIC_LEFT_DIGITS, right_digits=MAX_NUMERIC_RIGHT_DIGITS, positive=True
-            )
-        if isinstance(column.type, DateTime):
-            return self._fake.date_time
-        if isinstance(column.type, Date):
-            return self._fake.date_object
-        if isinstance(column.type, Boolean):
-            return self._fake.boolean
-        if isinstance(column.type, (String, Text)):
-            return self._fake.sentence
+    def _provider(self, column: Column[Any]) -> Callable[[], Any] | None:
+        if _is_text(column.type):
+            hint = COLUMN_HINTS.get(column.key.lower())
+            if hint is not None:
+                return getattr(self._fake, hint)
+        return self._type_provider(column.type)
+
+    def _type_provider(self, type_: TypeEngine[Any]) -> Callable[[], Any] | None:
+        fake = self._fake
+        if isinstance(type_, Enum):
+            choices = list(type_.enum_class) if type_.enum_class is not None else list(type_.enums)
+            return lambda: fake.random_element(choices)
+        if isinstance(type_, Boolean):
+            return fake.boolean
+        if isinstance(type_, Integer):
+            return lambda: fake.random_int(min=0, max=MAX_INTEGER)
+        if isinstance(type_, Float):
+            return lambda: fake.pyfloat(left_digits=MAX_FLOAT_LEFT_DIGITS, right_digits=MAX_NUMERIC_RIGHT_DIGITS)
+        if isinstance(type_, Numeric):
+            return self._numeric_provider(type_)
+        if isinstance(type_, DateTime):
+            return fake.date_time
+        if isinstance(type_, Date):
+            return fake.date_object
+        if isinstance(type_, Time):
+            return fake.time_object
+        if isinstance(type_, Interval):
+            return fake.time_delta
+        if isinstance(type_, Uuid):
+            return (lambda: fake.uuid4(cast_to=None)) if type_.as_uuid else fake.uuid4
+        if isinstance(type_, LargeBinary):
+            return lambda: fake.binary(length=BINARY_LENGTH)
+        if isinstance(type_, String):
+            return fake.sentence
         return None
+
+    def _numeric_provider(self, type_: Numeric[Any]) -> Callable[[], Any]:
+        right = MAX_NUMERIC_RIGHT_DIGITS if type_.scale is None else type_.scale
+        left = MAX_NUMERIC_LEFT_DIGITS if type_.precision is None else type_.precision - right
+        return lambda: self._fake.pydecimal(left_digits=left, right_digits=right, positive=True)
+
+
+def _is_text(type_: TypeEngine[Any]) -> bool:
+    return isinstance(type_, String) and not isinstance(type_, Enum)
+
+
+def _fit(value: Any, type_: TypeEngine[Any]) -> Any:
+    """Cut a generated string to the column's declared length."""
+    if isinstance(value, str) and _is_text(type_) and type_.length:
+        return value[: type_.length].rstrip()
+    return value

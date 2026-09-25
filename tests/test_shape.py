@@ -1,7 +1,7 @@
 """Core 3 scenarios: shape parsing, graph building, and the seed() orchestration."""
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, LargeBinary, Table, Text, create_engine, event
+from sqlalchemy import JSON, Column, ForeignKey, Integer, Table, Text, create_engine, event
 from sqlalchemy.orm import Session, declarative_base, relationship
 
 from _oracle import assert_referentially_consistent
@@ -81,7 +81,7 @@ class Tag(Base):
 class Event(Base):
     __tablename__ = "events"
     id = Column(Integer, primary_key=True)
-    payload = Column(LargeBinary, nullable=False)
+    payload = Column(JSON, nullable=False)
 
 
 def _engine():
