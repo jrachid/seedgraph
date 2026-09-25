@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import (
+    ARRAY,
     JSON,
     Column,
     Enum,
@@ -128,3 +129,51 @@ def test_the_generated_profiles_are_written_on_postgres(pg_session):
     pg_session.commit()
 
     assert len(graph.profiles) == 20
+
+
+class Survey(Base):
+    __tablename__ = "surveys"
+    id = Column(Integer, primary_key=True)
+    scores = Column(ARRAY(Integer), nullable=False)
+    codes = Column(ARRAY(String(5)), nullable=False)
+    extras = Column(ARRAY(JSON))
+
+
+class Ledger(Base):
+    __tablename__ = "ledgers"
+    id = Column(Integer, primary_key=True)
+    entries = Column(ARRAY(JSON), nullable=False)
+
+
+@pytest.fixture(scope="module")
+def surveys():
+    return build_graph(Survey, {"survey": 20})
+
+
+def test_an_array_column_gets_one_to_three_items_of_its_item_type(surveys):
+    for survey in surveys:
+        assert 1 <= len(survey.scores) <= 3
+        assert all(isinstance(score, int) for score in survey.scores)
+
+
+def test_array_items_fit_the_item_length(surveys):
+    assert all(len(code) <= 5 for survey in surveys for code in survey.codes)
+
+
+def test_a_nullable_array_of_an_uncovered_item_type_stays_empty(surveys):
+    assert all(survey.extras is None for survey in surveys)
+
+
+def test_a_required_array_of_an_uncovered_item_type_is_refused():
+    with pytest.raises(UnsupportedPlaceholderError, match="ledgers.entries"):
+        build_graph(Ledger, {"ledger": 1})
+
+
+@pytest.mark.postgres
+def test_array_columns_are_written_on_postgres(pg_session):
+    Base.metadata.create_all(pg_session.get_bind(), tables=[Survey.__table__])
+
+    graph = seed(pg_session, Survey, survey=10)
+    pg_session.commit()
+
+    assert len(graph.surveys) == 10

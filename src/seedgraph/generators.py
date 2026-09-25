@@ -9,6 +9,7 @@ from typing import Any, TypeAlias
 
 from faker import Faker
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     Column,
     Date,
@@ -57,6 +58,7 @@ MAX_NUMERIC_LEFT_DIGITS = 6
 MAX_NUMERIC_RIGHT_DIGITS = 2
 MAX_FLOAT_LEFT_DIGITS = 4
 BINARY_LENGTH = 16
+MAX_ARRAY_ITEMS = 3
 MAX_UNIQUE_ATTEMPTS = 100
 MAX_UNIQUE_INTEGER = 2**31 - 1
 
@@ -247,9 +249,17 @@ class FieldGenerator:
             return (lambda: fake.uuid4(cast_to=None)) if type_.as_uuid else fake.uuid4
         if isinstance(type_, LargeBinary):
             return lambda: fake.binary(length=BINARY_LENGTH)
+        if isinstance(type_, ARRAY):
+            return self._array_provider(type_)
         if isinstance(type_, String):
             return fake.sentence
         return None
+
+    def _array_provider(self, type_: ARRAY[Any]) -> Callable[[], Any] | None:
+        item = self._type_provider(type_.item_type)
+        if item is None:
+            return None
+        return lambda: [_fit(item(), type_.item_type) for _ in range(self._fake.random_int(1, MAX_ARRAY_ITEMS))]
 
     def _numeric_provider(self, type_: Numeric[Any]) -> Callable[[], Any]:
         right = MAX_NUMERIC_RIGHT_DIGITS if type_.scale is None else type_.scale
