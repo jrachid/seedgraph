@@ -3,7 +3,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from sqlalchemy import inspect
+from sqlalchemy import Column, inspect
 from sqlalchemy.orm import DeclarativeBase, class_mapper
 from sqlalchemy.orm.relationships import Relationship
 
@@ -22,6 +22,7 @@ __all__ = [
     "MissingRequiredParentError",
     "UnknownShapeKeyError",
     "UnsupportedPlaceholderError",
+    "UnsupportedPrimaryKeyError",
     "UnsupportedShapeDirectionError",
     "build_graph",
 ]
@@ -47,6 +48,10 @@ class UnsupportedShapeDirectionError(SeedgraphError):
 
 class MissingRequiredParentError(SeedgraphError):
     """A required link has no matching ancestor in the branch and was not declared in the shape."""
+
+
+class UnsupportedPrimaryKeyError(SeedgraphError):
+    """A primary key column the database does not fill has no override to take its value from."""
 
 
 def build_graph(
@@ -182,9 +187,12 @@ def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> An
     obj = model()
     mapper = class_mapper(type(obj))
     for column in mapper.local_table.columns:
-        if column.primary_key or column.foreign_keys:
+        if column.foreign_keys:
             continue
         key = mapper.get_property_by_column(column).key
+        if column.primary_key:
+            _fill_primary_key(obj, key, model, column, generator)
+            continue
         if column.nullable or column.default is not None:
             override = generator.override_for(model, column)
             if override is not None:
@@ -192,3 +200,18 @@ def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> An
             continue
         setattr(obj, key, generator.value_for(model, column))
     return obj
+
+
+def _fill_primary_key(
+    obj: Any, key: str, model: type[DeclarativeBase], column: Column[Any], generator: FieldGenerator
+) -> None:
+    if column is column.table.autoincrement_column or column.default is not None or column.server_default is not None:
+        return
+    override = generator.override_for(model, column)
+    if override is not None:
+        setattr(obj, key, override)
+        return
+    raise UnsupportedPrimaryKeyError(
+        f"cannot fill primary key {column.table.key}.{column.key}: the database does not generate it"
+        " — give the column a default or declare its value in overrides"
+    )

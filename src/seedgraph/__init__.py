@@ -1,13 +1,12 @@
 """seedgraph — referentially-consistent graph seeding for SQLAlchemy models.
 
-Declare a shape, get a coherent object graph: FK columns provably pointing at
-real PKs in the same graph, before any flush happens.
+Declare a shape, get a coherent object graph: written to the session, every FK
+column verified against the key of the row it points at.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Session
 
-from seedgraph.boundary import existing_maxima, existing_maxima_async
 from seedgraph.exceptions import SeedgraphError
 from seedgraph.generators import (
     GeneratorMap,
@@ -17,26 +16,25 @@ from seedgraph.generators import (
     UnsupportedPlaceholderError,
 )
 from seedgraph.graph import Graph
-from seedgraph.reconciliation import PendingParentError, UnsupportedPrimaryKeyError, reconcile_graph
 from seedgraph.shape import (
     AmbiguousShapeKeyError,
     InvalidShapeCountError,
     MissingRequiredParentError,
     UnknownShapeKeyError,
+    UnsupportedPrimaryKeyError,
     UnsupportedShapeDirectionError,
     build_graph,
 )
-from seedgraph.topology import CyclicFKGraphError
+from seedgraph.verification import IncoherentGraphError, verify_graph
 
 __version__ = "0.1.0.dev0"
 
 __all__ = [
     "AmbiguousShapeKeyError",
-    "CyclicFKGraphError",
     "Graph",
+    "IncoherentGraphError",
     "InvalidShapeCountError",
     "MissingRequiredParentError",
-    "PendingParentError",
     "SeedgraphError",
     "UnknownGeneratorColumnError",
     "UnknownOverrideColumnError",
@@ -60,15 +58,15 @@ def seed(
 ) -> Graph:
     """Seed a coherent object graph from the declared shape and return it.
 
-    Every FK column of the returned graph points at a real PK of the same graph,
-    before any flush happens. ``generators`` replaces how a column generates,
-    ``overrides`` pins a value; both are keyed {Model: {"column": ...}}.
-    Raises a ``SeedgraphError`` subclass on any bad shape key, count, model or
-    column declaration.
+    The graph is flushed, the database assigns its keys, and every FK column is
+    verified against the row it points at. ``generators`` replaces how a column
+    generates, ``overrides`` pins a value; both are keyed {Model: {"column": ...}}.
+    Raises a ``SeedgraphError`` subclass on any bad declaration or broken link.
     """
     objects = build_graph(model, shape, generators=generators, overrides=overrides)
-    reconcile_graph(objects, existing_maxima=existing_maxima(session, model))
     session.add_all(objects)
+    session.flush()
+    verify_graph(objects)
     return Graph(objects, model.metadata)
 
 
@@ -80,13 +78,9 @@ async def seed_async(
     overrides: OverrideMap | None = None,
     **shape: int,
 ) -> Graph:
-    """Twin of ``seed`` on an AsyncSession: same contract, one awaited read.
-
-    Every FK column of the returned graph points at a real PK of the same graph,
-    before any flush happens; the channels and errors match ``seed`` exactly.
-    The awaited call is the PK-maxima read — the single IO of the facade.
-    """
+    """Twin of ``seed`` on an AsyncSession: same contract, the flush is awaited."""
     objects = build_graph(model, shape, generators=generators, overrides=overrides)
-    reconcile_graph(objects, existing_maxima=await existing_maxima_async(session, model))
     session.add_all(objects)
+    await session.flush()
+    verify_graph(objects)
     return Graph(objects, model.metadata)

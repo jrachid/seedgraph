@@ -109,7 +109,7 @@ def test_seed_builds_root_objects_with_default_count(session):
     names = [user.name for user in graph.users]
     assert all(" " in name for name in names)
     assert len(set(names)) == 3
-    assert len(session.new) == 3
+    assert session.query(User).count() == 3
 
 
 def test_seed_root_count_key_overrides_default(session):

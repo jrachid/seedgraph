@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 def pg_url() -> Iterator[str]:
     """Serve the psycopg URL of a disposable PostgreSQL, or skip when Docker does not answer."""
     try:
-        from testcontainers.postgres import PostgresContainer
+        from testcontainers.community.postgres import PostgresContainer
 
         container = PostgresContainer("postgres:16-alpine", driver="psycopg").start()
     except Exception as exc:  # noqa: BLE001 — sans Docker, les tests Postgres se sautent au lieu d'échouer
