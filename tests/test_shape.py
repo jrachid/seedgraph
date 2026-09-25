@@ -207,14 +207,6 @@ def test_a_required_parent_outside_the_branch_is_generated_once_and_shared(sessi
     assert all(comment.author is author for comment in graph.comments)
 
 
-def test_many_to_many_key_raises():
-    with pytest.raises(UnsupportedShapeDirectionError) as excinfo:
-        build_graph(Article, {"tag": 2})
-
-    assert "tag" in str(excinfo.value)
-    assert "secondary" in str(excinfo.value)
-
-
 def test_unsupported_placeholder_type_raises():
     with pytest.raises(UnsupportedPlaceholderError) as excinfo:
         build_graph(Event, {})

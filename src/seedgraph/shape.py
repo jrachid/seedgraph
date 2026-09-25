@@ -46,7 +46,7 @@ class InvalidShapeCountError(SeedgraphError):
 
 
 class UnsupportedShapeDirectionError(SeedgraphError):
-    """A shape key walks a relationship that is not one-to-many."""
+    """A shape key walks a relationship that cannot build children: towards a parent, or view-only."""
 
 
 class MissingRequiredParentError(SeedgraphError):
@@ -117,7 +117,7 @@ def _resolve_segment(model: type[DeclarativeBase], segment: str) -> Relationship
     else:
         matches = [
             rel for rel in mapper.relationships
-            if rel.mapper.class_.__name__.lower() == segment
+            if rel.mapper.class_.__name__.lower() == segment and not rel.viewonly
         ]
         if not matches:
             raise UnknownShapeKeyError(f"unknown shape key {segment!r} for {model.__name__}")
@@ -132,15 +132,13 @@ def _resolve_segment(model: type[DeclarativeBase], segment: str) -> Relationship
 
 
 def _check_relationship(model: type[DeclarativeBase], segment: str, relationship: Relationship) -> Relationship:
-    if relationship.direction.name == "MANYTOMANY":
+    walked = f"shape key {segment!r} walks {model.__name__}.{relationship.key}"
+    if relationship.viewonly:
+        raise UnsupportedShapeDirectionError(f"{walked}, a viewonly relationship — nothing would be written")
+    if relationship.direction.name == "MANYTOONE":
         raise UnsupportedShapeDirectionError(
-            f"shape key {segment!r} walks {model.__name__}.{relationship.key}, a many-to-many"
-            " relationship — its foreign keys live in the secondary table, which has no objects"
-        )
-    if relationship.direction.name != "ONETOMANY":
-        raise UnsupportedShapeDirectionError(
-            f"shape key {segment!r} walks {model.__name__}.{relationship.key},"
-            f" which is {relationship.direction.name.lower()} — only one-to-many paths can be built"
+            f"{walked}, which points at a parent — parents are linked or generated on their own,"
+            " pass existing ones in parents"
         )
     return relationship
 
