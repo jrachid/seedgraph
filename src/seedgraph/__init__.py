@@ -4,16 +4,18 @@ Declare a shape, get a coherent object graph: FK columns provably pointing at
 real PKs in the same graph, before any flush happens.
 """
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Session
 
-from seedgraph.boundary import existing_maxima
+from seedgraph.boundary import existing_maxima, existing_maxima_async
 from seedgraph.generators import GeneratorMap, OverrideMap
 from seedgraph.graph import Graph
 from seedgraph.reconciliation import reconcile_graph
 from seedgraph.shape import build_graph
 
 __version__ = "0.1.0.dev0"
-__all__ = ["__version__", "seed"]
+
+__all__ = ["__version__", "seed", "seed_async"]
 
 
 def seed(
@@ -34,5 +36,25 @@ def seed(
     """
     objects = build_graph(model, shape, generators=generators, overrides=overrides)
     reconcile_graph(objects, existing_maxima=existing_maxima(session, model))
+    session.add_all(objects)
+    return Graph(objects)
+
+
+async def seed_async(
+    session: AsyncSession,
+    model: type[DeclarativeBase],
+    /,
+    generators: GeneratorMap | None = None,
+    overrides: OverrideMap | None = None,
+    **shape: int,
+) -> Graph:
+    """Twin of ``seed`` on an AsyncSession: same contract, one awaited read.
+
+    Every FK column of the returned graph points at a real PK of the same graph,
+    before any flush happens; the channels and errors match ``seed`` exactly.
+    The awaited call is the PK-maxima read — the single IO of the facade.
+    """
+    objects = build_graph(model, shape, generators=generators, overrides=overrides)
+    reconcile_graph(objects, existing_maxima=await existing_maxima_async(session, model))
     session.add_all(objects)
     return Graph(objects)
