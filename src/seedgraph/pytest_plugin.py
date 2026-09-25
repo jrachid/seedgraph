@@ -13,7 +13,7 @@ except Exception as exc:  # noqa: BLE001 — la garde : tout échec d'import ne 
     _seed_async = None
     _IMPORT_ERROR = exc
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any
 
 import pytest
@@ -55,12 +55,13 @@ def graph(session: Session) -> Callable[..., Any]:
         /,
         generators: GeneratorMap | None = None,
         overrides: OverrideMap | None = None,
+        parents: Sequence[Any] = (),
         **shape: int,
     ) -> Any:
         if _seed is None:
             raise _fixture_error() from _IMPORT_ERROR
         model.metadata.create_all(session.get_bind(), checkfirst=True)
-        return _seed(session, model, generators=generators, overrides=overrides, **shape)
+        return _seed(session, model, generators=generators, overrides=overrides, parents=parents, **shape)
 
     return make
 
@@ -88,6 +89,7 @@ async def agraph(asession: AsyncSession) -> Callable[..., Any]:
         /,
         generators: GeneratorMap | None = None,
         overrides: OverrideMap | None = None,
+        parents: Sequence[Any] = (),
         **shape: int,
     ) -> Any:
         if _seed_async is None:
@@ -95,6 +97,6 @@ async def agraph(asession: AsyncSession) -> Callable[..., Any]:
         await asession.run_sync(
             lambda sync_session: model.metadata.create_all(sync_session.get_bind(), checkfirst=True)
         )
-        return await _seed_async(asession, model, generators=generators, overrides=overrides, **shape)
+        return await _seed_async(asession, model, generators=generators, overrides=overrides, parents=parents, **shape)
 
     return make

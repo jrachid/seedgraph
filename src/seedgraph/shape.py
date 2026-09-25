@@ -19,6 +19,7 @@ from seedgraph.generators import (
 )
 
 __all__ = [
+    "AmbiguousParentError",
     "AmbiguousShapeKeyError",
     "InvalidShapeCountError",
     "MissingRequiredParentError",
@@ -52,6 +53,10 @@ class MissingRequiredParentError(SeedgraphError):
     """A required link has no matching ancestor in the branch and was not declared in the shape."""
 
 
+class AmbiguousParentError(SeedgraphError):
+    """Several objects of the same type were provided as parents."""
+
+
 class UnsupportedPrimaryKeyError(SeedgraphError):
     """A primary key column the database does not fill has no override to take its value from."""
 
@@ -62,21 +67,27 @@ def build_graph(
     generators: GeneratorMap | None = None,
     overrides: OverrideMap | None = None,
     state: GenerationState | None = None,
+    parents: Sequence[Any] = (),
 ) -> list[Any]:
-    """Build the declared shape's objects, level by level, then link every required parent."""
+    """Build the declared shape's objects, level by level, and link their parents.
+
+    A link takes the nearest ancestor of its type in the branch, then the provided parent of that type;
+    a required link still unset gets a parent generated once per type and shared, added to the result.
+    """
     counts = dict(shape)
     root_key = model.__name__.lower()
     root_count = counts.pop(root_key, DEFAULT_COUNT)
     _check_count(root_key, root_count)
     tree = _resolve_tree(model, counts)
     validate_column_declarations(generators, overrides)
-    objects = []
+    objects: list[Any] = []
     generator = FieldGenerator(generators, overrides, state)
+    linker = _ParentLinker(generator, objects, parents)
     for _ in range(root_count):
         root = _build_object(model, generator)
-        _link_required_parents(root, [])
+        linker.link(root, [])
         objects.append(root)
-        _attach_children(root, tree, objects, generator, [])
+        _attach_children(root, tree, objects, generator, linker, [])
     return objects
 
 
@@ -135,7 +146,12 @@ def _check_relationship(model: type[DeclarativeBase], segment: str, relationship
 
 
 def _attach_children(
-    parent: Any, node: dict[str, Any], objects: list[Any], generator: FieldGenerator, ancestors: list[Any]
+    parent: Any,
+    node: dict[str, Any],
+    objects: list[Any],
+    generator: FieldGenerator,
+    linker: "_ParentLinker",
+    ancestors: list[Any],
 ) -> None:
     branch = [*ancestors, parent]
     for child_node in node["children"].values():
@@ -144,35 +160,75 @@ def _attach_children(
         for _ in range(count):
             child = _build_object(relationship.mapper.class_, generator)
             getattr(parent, relationship.key).append(child)
-            _link_required_parents(child, branch)
+            linker.link(child, branch)
             objects.append(child)
-            _attach_children(child, child_node, objects, generator, branch)
+            _attach_children(child, child_node, objects, generator, linker, branch)
 
 
-def _link_required_parents(obj: Any, ancestors: Sequence[Any]) -> None:
-    """Attach each unset required link to the nearest ancestor of the target type in the branch."""
-    state = inspect(obj)
-    for relationship in state.mapper.relationships:
-        if relationship.direction.name != "MANYTOONE" or not _is_required(relationship):
-            continue
-        if relationship.key not in state.unloaded and getattr(obj, relationship.key) is not None:
-            continue
+class _ParentLinker:
+    def __init__(self, generator: FieldGenerator, objects: list[Any], parents: Sequence[Any]) -> None:
+        self._generator = generator
+        self._objects = objects
+        self._provided = _index_parents(parents)
+        self._generated: dict[type, Any] = {}
+        self._in_progress: list[type] = []
+
+    def link(self, obj: Any, ancestors: Sequence[Any]) -> None:
+        state = inspect(obj)
+        for relationship in state.mapper.relationships:
+            if relationship.direction.name != "MANYTOONE":
+                continue
+            if relationship.key not in state.unloaded and getattr(obj, relationship.key) is not None:
+                continue
+            parent = self._parent_for(obj, relationship, ancestors)
+            if parent is not None:
+                setattr(obj, relationship.key, parent)
+
+    def _parent_for(self, obj: Any, relationship: Relationship, ancestors: Sequence[Any]) -> Any:
         target = relationship.mapper.class_
-        for ancestor in reversed(ancestors):
-            if type(ancestor) is target:
-                setattr(obj, relationship.key, ancestor)
-                break
-        else:
-            advice = (
-                " — make the FK nullable to tie declared children, the first object of a"
-                " self-referential branch cannot have a required parent"
-                if target is type(obj)
-                else ""
+        required = _is_required(relationship)
+        if required:
+            for ancestor in reversed(ancestors):
+                if type(ancestor) is target:
+                    return ancestor
+        if target in self._provided:
+            return self._provided[target]
+        if not required:
+            return None
+        if target in self._generated:
+            return self._generated[target]
+        if target is type(obj) or target in self._in_progress:
+            raise MissingRequiredParentError(self._unreachable(obj, relationship, target))
+        return self._generate(target)
+
+    def _generate(self, target: type[DeclarativeBase]) -> Any:
+        self._in_progress.append(target)
+        parent = _build_object(target, self._generator)
+        self.link(parent, [])
+        self._in_progress.pop()
+        self._generated[target] = parent
+        self._objects.append(parent)
+        return parent
+
+    def _unreachable(self, obj: Any, relationship: Relationship, target: type) -> str:
+        where = f"{type(obj).__name__}.{relationship.key} requires a {target.__name__}"
+        if target is type(obj):
+            return (
+                f"{where}: the first object of a self-referential branch cannot have a required parent"
+                " — make the FK nullable, or pass an existing one in parents"
             )
-            raise MissingRequiredParentError(
-                f"{type(obj).__name__}.{relationship.key} requires a {target.__name__}, but no"
-                f" ancestor of that type is in the branch — provide the parent in the shape{advice}"
-            )
+        loop = " -> ".join(model.__name__ for model in [*self._in_progress, target])
+        return f"{where}, but required links form a loop ({loop}) — pass one of them in parents"
+
+
+def _index_parents(parents: Sequence[Any]) -> dict[type, Any]:
+    provided: dict[type, Any] = {}
+    for parent in parents:
+        kind = type(parent)
+        if kind in provided:
+            raise AmbiguousParentError(f"several {kind.__name__} objects were passed in parents — pass one per type")
+        provided[kind] = parent
+    return provided
 
 
 def _is_required(relationship: Relationship) -> bool:

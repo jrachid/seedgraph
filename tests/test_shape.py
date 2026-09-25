@@ -9,7 +9,6 @@ from seedgraph import seed
 from seedgraph.shape import (
     AmbiguousShapeKeyError,
     InvalidShapeCountError,
-    MissingRequiredParentError,
     UnknownShapeKeyError,
     UnsupportedPlaceholderError,
     UnsupportedShapeDirectionError,
@@ -200,11 +199,12 @@ def test_seed_builds_nested_shape(session):
     assert_referentially_consistent(graph.users + graph.posts + graph.comments)
 
 
-def test_fallback_without_matching_ancestor_raises(session):
-    with pytest.raises(MissingRequiredParentError) as excinfo:
-        seed(session, Post, comment=3)
+def test_a_required_parent_outside_the_branch_is_generated_once_and_shared(session):
+    graph = seed(session, Post, comment=3)
 
-    assert "author" in str(excinfo.value)
+    [author] = graph.users
+    assert all(post.author is author for post in graph.posts)
+    assert all(comment.author is author for comment in graph.comments)
 
 
 def test_many_to_many_key_raises():

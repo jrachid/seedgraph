@@ -1,4 +1,4 @@
-"""Read what already exists at the boundary: which candidate values a unique column already holds."""
+"""Read what already exists at the boundary: provided parents, and the values unique columns already hold."""
 
 from collections.abc import Sequence
 from typing import Any
@@ -7,9 +7,24 @@ from sqlalchemy import Column, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-__all__ = ["taken_values", "taken_values_async"]
+from seedgraph.exceptions import SeedgraphError
+
+__all__ = ["UnattachedParentError", "check_parents_attached", "taken_values", "taken_values_async"]
 
 CHUNK = 500
+
+
+class UnattachedParentError(SeedgraphError):
+    """A provided parent is neither pending nor persistent in the session seeding the graph."""
+
+
+def check_parents_attached(session: Session, parents: Sequence[Any]) -> None:
+    """Refuse any provided parent that the session does not hold, since flushing would insert it silently."""
+    for parent in parents:
+        if parent not in session:
+            raise UnattachedParentError(
+                f"parent {type(parent).__name__} is not in the session — add it, or load it, before seeding"
+            )
 
 
 def taken_values(session: Session, column: Column[Any], candidates: Sequence[Any]) -> set[Any]:
