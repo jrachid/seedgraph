@@ -240,3 +240,19 @@ def test_pk_and_fk_are_never_generated(session):
             for comment in post.comments:
                 assert isinstance(comment.id, int)
                 assert comment.post_id == post.id
+
+
+def test_two_seeds_in_one_session_continue_the_same_faker_sequence(session):
+    first = seed(session, User)
+    second = seed(session, User)
+
+    first_emails = {user.email for user in first.users}
+    assert first_emails.isdisjoint(user.email for user in second.users)
+
+
+def test_a_new_session_replays_the_same_values(session):
+    first = [user.email for user in seed(session, User).users]
+    with Session(session.get_bind()) as other:
+        replayed = [user.email for user in seed(other, User).users]
+
+    assert first == replayed

@@ -180,3 +180,10 @@ def test_override_reaches_a_non_eligible_column():
     nota = build_graph(Nota, {"nota": 1}, overrides={Nota: {"rating": 9}})[0]
 
     assert nota.rating == 9
+
+
+def test_a_none_override_leaves_the_column_empty():
+    [user, post] = build_graph(User, {"user": 1, "post": 1}, overrides={Post: {"title": None}})
+
+    assert post.title is None
+    assert user.name is not None

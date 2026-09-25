@@ -13,17 +13,23 @@ from sqlalchemy.orm import class_mapper
 from seedgraph.exceptions import SeedgraphError
 
 __all__ = [
+    "UNSET",
     "ColumnGenerator",
     "FieldGenerator",
     "GenerationContext",
+    "GenerationState",
     "UnknownGeneratorColumnError",
     "UnknownOverrideColumnError",
     "UnsupportedPlaceholderError",
+    "generation_state",
     "validate_column_declarations",
 ]
 
 DEFAULT_SEED = 42
 DEFAULT_LOCALE = "en_US"
+SESSION_INFO_KEY = "seedgraph"
+
+UNSET: Any = object()
 
 MAX_INTEGER = 100
 MAX_NUMERIC_LEFT_DIGITS = 6
@@ -86,6 +92,19 @@ def validate_column_declarations(generators: GeneratorMap | None, overrides: Ove
                     raise error(f"unknown {verb} column {column!r} for {model.__name__}")
 
 
+class GenerationState:
+    """What generation carries from one seed() to the next on the same session: the seeded faker."""
+
+    def __init__(self) -> None:
+        self.fake: Faker = Faker(locale=DEFAULT_LOCALE)
+        self.fake.seed_instance(DEFAULT_SEED)
+
+
+def generation_state(info: dict[Any, Any]) -> GenerationState:
+    """Return the session's generation state, created on its first seed() from ``session.info``."""
+    return info.setdefault(SESSION_INFO_KEY, GenerationState())
+
+
 class GenerationContext:
     """The object handed to custom generators: the seeded fake and the column name."""
 
@@ -97,15 +116,19 @@ class GenerationContext:
 class FieldGenerator:
     """Generate values for eligible columns through one seeded Faker instance."""
 
-    def __init__(self, generators: GeneratorMap | None = None, overrides: OverrideMap | None = None) -> None:
-        self._fake = Faker(locale=DEFAULT_LOCALE)
-        self._fake.seed_instance(DEFAULT_SEED)
+    def __init__(
+        self,
+        generators: GeneratorMap | None = None,
+        overrides: OverrideMap | None = None,
+        state: GenerationState | None = None,
+    ) -> None:
+        self._fake = (state or GenerationState()).fake
         self._generators: dict[type, dict[str, ColumnGenerator]] = generators or {}
         self._overrides: OverrideMap = overrides or {}
 
     def value_for(self, model: type, column: Column[Any]) -> Any:
         override = self.override_for(model, column)
-        if override is not None:
+        if override is not UNSET:
             return override
         custom = self._generators.get(model)
         if custom is not None and column.key in custom:
@@ -121,10 +144,10 @@ class FieldGenerator:
         return provider()
 
     def override_for(self, model: type, column: Column[Any]) -> Any:
-        """Return the declared override's resolved value for the column, or None when undeclared."""
+        """Return the declared override's resolved value for the column, or UNSET when undeclared."""
         override = self._overrides.get(model)
         if override is None or column.key not in override:
-            return None
+            return UNSET
         return self._resolve(override[column.key], column)
 
     def _resolve(self, value: ColumnOverride, column: Column[Any]) -> Any:

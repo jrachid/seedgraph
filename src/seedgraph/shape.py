@@ -9,7 +9,9 @@ from sqlalchemy.orm.relationships import Relationship
 
 from seedgraph.exceptions import SeedgraphError
 from seedgraph.generators import (
+    UNSET,
     FieldGenerator,
+    GenerationState,
     GeneratorMap,
     OverrideMap,
     UnsupportedPlaceholderError,
@@ -59,6 +61,7 @@ def build_graph(
     shape: Mapping[str, int],
     generators: GeneratorMap | None = None,
     overrides: OverrideMap | None = None,
+    state: GenerationState | None = None,
 ) -> list[Any]:
     """Build the declared shape's objects, level by level, then link every required parent."""
     counts = dict(shape)
@@ -68,7 +71,7 @@ def build_graph(
     tree = _resolve_tree(model, counts)
     validate_column_declarations(generators, overrides)
     objects = []
-    generator = FieldGenerator(generators, overrides)
+    generator = FieldGenerator(generators, overrides, state)
     for _ in range(root_count):
         root = _build_object(model, generator)
         _link_required_parents(root, [])
@@ -195,7 +198,7 @@ def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> An
             continue
         if column.nullable or column.default is not None:
             override = generator.override_for(model, column)
-            if override is not None:
+            if override is not UNSET:
                 setattr(obj, key, override)
             continue
         setattr(obj, key, generator.value_for(model, column))
@@ -208,7 +211,7 @@ def _fill_primary_key(
     if column is column.table.autoincrement_column or column.default is not None or column.server_default is not None:
         return
     override = generator.override_for(model, column)
-    if override is not None:
+    if override is not UNSET:
         setattr(obj, key, override)
         return
     raise UnsupportedPrimaryKeyError(

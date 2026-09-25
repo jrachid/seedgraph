@@ -14,6 +14,7 @@ from seedgraph.generators import (
     UnknownGeneratorColumnError,
     UnknownOverrideColumnError,
     UnsupportedPlaceholderError,
+    generation_state,
 )
 from seedgraph.graph import Graph
 from seedgraph.shape import (
@@ -63,7 +64,8 @@ def seed(
     generates, ``overrides`` pins a value; both are keyed {Model: {"column": ...}}.
     Raises a ``SeedgraphError`` subclass on any bad declaration or broken link.
     """
-    objects = build_graph(model, shape, generators=generators, overrides=overrides)
+    state = generation_state(session.info)
+    objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state)
     session.add_all(objects)
     session.flush()
     verify_graph(objects)
@@ -79,7 +81,8 @@ async def seed_async(
     **shape: int,
 ) -> Graph:
     """Twin of ``seed`` on an AsyncSession: same contract, the flush is awaited."""
-    objects = build_graph(model, shape, generators=generators, overrides=overrides)
+    state = generation_state(session.sync_session.info)
+    objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state)
     session.add_all(objects)
     await session.flush()
     verify_graph(objects)
