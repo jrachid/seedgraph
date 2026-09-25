@@ -4,6 +4,7 @@ Its world is (column, fake) -> value. No session, no shape, no graph.
 """
 
 from collections.abc import Callable
+from functools import cache
 from typing import Any, TypeAlias
 
 from faker import Faker
@@ -20,6 +21,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Time,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import class_mapper
@@ -33,10 +35,12 @@ __all__ = [
     "FieldGenerator",
     "GenerationContext",
     "GenerationState",
+    "UniqueValueExhaustedError",
     "UnknownGeneratorColumnError",
     "UnknownOverrideColumnError",
     "UnsupportedPlaceholderError",
     "generation_state",
+    "is_unique",
     "validate_column_declarations",
 ]
 
@@ -51,6 +55,7 @@ MAX_NUMERIC_LEFT_DIGITS = 6
 MAX_NUMERIC_RIGHT_DIGITS = 2
 MAX_FLOAT_LEFT_DIGITS = 4
 BINARY_LENGTH = 16
+MAX_UNIQUE_ATTEMPTS = 100
 
 ColumnGenerator: TypeAlias = Callable[["GenerationContext"], Any]
 ColumnOverride: TypeAlias = ColumnGenerator | Any
@@ -82,6 +87,10 @@ class UnsupportedPlaceholderError(SeedgraphError):
     """A NOT NULL column without default carries a type no generator covers."""
 
 
+class UniqueValueExhaustedError(SeedgraphError):
+    """A unique column's generator kept producing values already used or already in the database."""
+
+
 class UnknownGeneratorColumnError(SeedgraphError):
     """A column declared in generators does not exist on its model."""
 
@@ -110,11 +119,15 @@ def validate_column_declarations(generators: GeneratorMap | None, overrides: Ove
 
 
 class GenerationState:
-    """What generation carries from one seed() to the next on the same session: the seeded faker."""
+    """What generation carries from one seed() to the next on the same session: the faker, the used unique values."""
 
     def __init__(self) -> None:
         self.fake: Faker = Faker(locale=DEFAULT_LOCALE)
         self.fake.seed_instance(DEFAULT_SEED)
+        self.used: dict[tuple[str, str], set[Any]] = {}
+
+    def used_values(self, column: Column[Any]) -> set[Any]:
+        return self.used.setdefault((column.table.key, column.key), set())
 
 
 def generation_state(info: dict[Any, Any]) -> GenerationState:
@@ -139,7 +152,8 @@ class FieldGenerator:
         overrides: OverrideMap | None = None,
         state: GenerationState | None = None,
     ) -> None:
-        self._fake = (state or GenerationState()).fake
+        self._state = state or GenerationState()
+        self._fake = self._state.fake
         self._generators: dict[type, dict[str, ColumnGenerator]] = generators or {}
         self._overrides: OverrideMap = overrides or {}
 
@@ -148,17 +162,41 @@ class FieldGenerator:
         override = self.override_for(model, column)
         if override is not UNSET:
             return override
-        custom = self._generators.get(model)
-        if custom is not None and column.key in custom:
-            return custom[column.key](GenerationContext(self._fake, column.key))
-        provider = self._provider(column)
-        if provider is None:
+        produce = self._producer(model, column)
+        if produce is None:
             if column.nullable:
                 return UNSET
             raise UnsupportedPlaceholderError(
                 f"cannot generate NOT NULL column {column.table.key}.{column.key} of type {column.type}"
             )
-        return _fit(provider(), column.type)
+        if not is_unique(column):
+            return produce()
+        used = self._state.used_values(column)
+        for _ in range(MAX_UNIQUE_ATTEMPTS):
+            value = produce()
+            if value not in used:
+                used.add(value)
+                return value
+        raise UniqueValueExhaustedError(
+            f"no new value for unique column {column.table.key}.{column.key} after {MAX_UNIQUE_ATTEMPTS}"
+            " attempts — widen its generator or declare one in generators"
+        )
+
+    def is_overridden(self, model: type, column: Column[Any]) -> bool:
+        return column.key in self._overrides.get(model, {})
+
+    def remember(self, column: Column[Any], values: set[Any]) -> None:
+        """Mark values as used so the unique column never produces them again."""
+        self._state.used_values(column).update(values)
+
+    def _producer(self, model: type, column: Column[Any]) -> Callable[[], Any] | None:
+        custom = self._generators.get(model)
+        if custom is not None and column.key in custom:
+            return lambda: custom[column.key](GenerationContext(self._fake, column.key))
+        provider = self._provider(column)
+        if provider is None:
+            return None
+        return lambda: _fit(provider(), column.type)
 
     def override_for(self, model: type, column: Column[Any]) -> Any:
         """Return the declared override's resolved value for the column, or UNSET when undeclared."""
@@ -212,6 +250,17 @@ class FieldGenerator:
         right = MAX_NUMERIC_RIGHT_DIGITS if type_.scale is None else type_.scale
         left = MAX_NUMERIC_LEFT_DIGITS if type_.precision is None else type_.precision - right
         return lambda: self._fake.pydecimal(left_digits=left, right_digits=right, positive=True)
+
+
+@cache
+def is_unique(column: Column[Any]) -> bool:
+    """A column is unique on its own through its flag, a one-column unique constraint or a unique index."""
+    if column.unique:
+        return True
+    table = column.table
+    constraints = [constraint.columns for constraint in table.constraints if isinstance(constraint, UniqueConstraint)]
+    indexes = [index.columns for index in table.indexes if index.unique]
+    return any(len(columns) == 1 and next(iter(columns)) is column for columns in constraints + indexes)
 
 
 def _is_text(type_: TypeEngine[Any]) -> bool:

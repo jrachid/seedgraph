@@ -7,10 +7,13 @@ column verified against the key of the row it points at.
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Session
 
+from seedgraph.boundary import taken_values, taken_values_async
 from seedgraph.exceptions import SeedgraphError
 from seedgraph.generators import (
+    FieldGenerator,
     GeneratorMap,
     OverrideMap,
+    UniqueValueExhaustedError,
     UnknownGeneratorColumnError,
     UnknownOverrideColumnError,
     UnsupportedPlaceholderError,
@@ -26,6 +29,7 @@ from seedgraph.shape import (
     UnsupportedShapeDirectionError,
     build_graph,
 )
+from seedgraph.uniqueness import UniqueRepair
 from seedgraph.verification import IncoherentGraphError, verify_graph
 
 __version__ = "0.1.0.dev0"
@@ -37,6 +41,7 @@ __all__ = [
     "InvalidShapeCountError",
     "MissingRequiredParentError",
     "SeedgraphError",
+    "UniqueValueExhaustedError",
     "UnknownGeneratorColumnError",
     "UnknownOverrideColumnError",
     "UnknownShapeKeyError",
@@ -66,6 +71,9 @@ def seed(
     """
     state = generation_state(session.info)
     objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state)
+    repair = UniqueRepair(objects, FieldGenerator(generators, overrides, state))
+    while queries := repair.queries():
+        repair.reject({column: taken_values(session, column, values) for column, values in queries})
     session.add_all(objects)
     session.flush()
     verify_graph(objects)
@@ -83,6 +91,9 @@ async def seed_async(
     """Twin of ``seed`` on an AsyncSession: same contract, the flush is awaited."""
     state = generation_state(session.sync_session.info)
     objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state)
+    repair = UniqueRepair(objects, FieldGenerator(generators, overrides, state))
+    while queries := repair.queries():
+        repair.reject({column: await taken_values_async(session, column, values) for column, values in queries})
     session.add_all(objects)
     await session.flush()
     verify_graph(objects)
