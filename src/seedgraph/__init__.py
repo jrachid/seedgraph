@@ -8,14 +8,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from seedgraph.boundary import existing_maxima, existing_maxima_async
-from seedgraph.generators import GeneratorMap, OverrideMap
+from seedgraph.exceptions import SeedgraphError
+from seedgraph.generators import (
+    GeneratorMap,
+    OverrideMap,
+    UnknownGeneratorColumnError,
+    UnknownOverrideColumnError,
+    UnsupportedPlaceholderError,
+)
 from seedgraph.graph import Graph
-from seedgraph.reconciliation import reconcile_graph
-from seedgraph.shape import build_graph
+from seedgraph.reconciliation import PendingParentError, UnsupportedPrimaryKeyError, reconcile_graph
+from seedgraph.shape import (
+    AmbiguousShapeKeyError,
+    InvalidShapeCountError,
+    MissingRequiredParentError,
+    UnknownShapeKeyError,
+    UnsupportedShapeDirectionError,
+    build_graph,
+)
+from seedgraph.topology import CyclicFKGraphError
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["__version__", "seed", "seed_async"]
+__all__ = [
+    "AmbiguousShapeKeyError",
+    "CyclicFKGraphError",
+    "Graph",
+    "InvalidShapeCountError",
+    "MissingRequiredParentError",
+    "PendingParentError",
+    "SeedgraphError",
+    "UnknownGeneratorColumnError",
+    "UnknownOverrideColumnError",
+    "UnknownShapeKeyError",
+    "UnsupportedPlaceholderError",
+    "UnsupportedPrimaryKeyError",
+    "UnsupportedShapeDirectionError",
+    "__version__",
+    "seed",
+    "seed_async",
+]
 
 
 def seed(
@@ -37,7 +69,7 @@ def seed(
     objects = build_graph(model, shape, generators=generators, overrides=overrides)
     reconcile_graph(objects, existing_maxima=existing_maxima(session, model))
     session.add_all(objects)
-    return Graph(objects)
+    return Graph(objects, model.metadata)
 
 
 async def seed_async(
@@ -57,4 +89,4 @@ async def seed_async(
     objects = build_graph(model, shape, generators=generators, overrides=overrides)
     reconcile_graph(objects, existing_maxima=await existing_maxima_async(session, model))
     session.add_all(objects)
-    return Graph(objects)
+    return Graph(objects, model.metadata)

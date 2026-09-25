@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
+from sqlalchemy import MetaData
 from sqlalchemy.orm import class_mapper
 
 __all__ = ["Graph"]
@@ -11,14 +12,20 @@ __all__ = ["Graph"]
 class Graph:
     """Group the seeded objects by table name, exposed as attributes.
 
-    Each table name is an attribute holding the list of generated objects of
-    that table, shaped by ``seed``'s declared shape: ``graph.users``,
-    ``graph.posts``, ...
+    Each table of the seeded model's metadata is an attribute holding the list of
+    generated objects of that table, empty when the shape built none: ``graph.users``.
     """
 
-    def __init__(self, objects: Sequence[Any]) -> None:
+    def __init__(self, objects: Sequence[Any], metadata: MetaData) -> None:
+        self._table_names = sorted(table.name for table in metadata.tables.values())
         grouped: dict[str, list[Any]] = {}
         for obj in objects:
             grouped.setdefault(class_mapper(type(obj)).local_table.name, []).append(obj)
         for table_name, group in grouped.items():
             setattr(self, table_name, group)
+
+    def __getattr__(self, name: str) -> list[Any]:
+        if not name.startswith("_") and name in self._table_names:
+            return []
+        known = ", ".join(self._table_names)
+        raise AttributeError(f"the graph has no table {name!r} — known tables: {known}")

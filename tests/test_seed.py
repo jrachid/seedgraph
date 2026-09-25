@@ -80,3 +80,29 @@ def test_seed_persists_without_fk_violation(session):
     comment_count = session.query(Comment).count()
 
     assert (user_count, post_count, comment_count) == (3, 6, 18)
+
+
+def test_a_table_the_shape_left_empty_reads_as_an_empty_list(session):
+    graph = seed(session, User, post=0)
+
+    assert graph.posts == []
+    assert graph.comments == []
+
+
+def test_an_unknown_graph_attribute_names_the_known_tables(session):
+    graph = seed(session, User)
+
+    with pytest.raises(AttributeError, match="comments, posts, users"):
+        _ = graph.articles
+
+
+def test_every_error_is_importable_from_the_package():
+    import seedgraph
+    from seedgraph import SeedgraphError
+
+    errors = [getattr(seedgraph, name) for name in seedgraph.__all__ if name.endswith("Error")]
+
+    assert SeedgraphError in errors
+    assert "UnknownShapeKeyError" in seedgraph.__all__
+    assert all(issubclass(error, SeedgraphError) for error in errors)
+    assert "Graph" in seedgraph.__all__

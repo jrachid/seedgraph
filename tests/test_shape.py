@@ -163,7 +163,7 @@ def test_seed_zero_count_yields_no_children(session):
     graph = seed(session, User, post=0)
 
     assert len(graph.users) == 3
-    assert not hasattr(graph, "posts")
+    assert graph.posts == []
     assert session.query(Post).count() == 0
 
 
