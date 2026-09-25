@@ -51,11 +51,11 @@ class Label(Base):
 def test_plugin_serves_session_without_configuration(pytester):
     pytester.makepyfile(
         '''
-def test_fresh_session(session):
+def test_fresh_session(seedgraph_session):
     from sqlalchemy import text
 
-    assert session.connection().execute(text("PRAGMA foreign_keys")).scalar() == 1
-    tables = session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
+    assert seedgraph_session.connection().execute(text("PRAGMA foreign_keys")).scalar() == 1
+    tables = seedgraph_session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
     assert not [name for (name,) in tables if not name.startswith("sqlite_")]
 '''
     )
@@ -70,8 +70,8 @@ def test_graph_fixture_seeds_a_graph_with_the_full_api(pytester):
         f'''
 {MINI_MODELS}
 
-def test_seeded_graph(graph):
-    graph_obj = graph(User, post=2, post__comment=1)
+def test_seeded_graph(seedgraph_graph):
+    graph_obj = seedgraph_graph(User, post=2, post__comment=1)
 
     assert len(graph_obj.users) == 3
     assert len(graph_obj.posts) == 6
@@ -89,13 +89,13 @@ def test_tables_are_created_on_demand_from_the_seeded_model(pytester):
         MINI_MODELS
         + '''
 
-def test_tables_on_demand(graph, session):
+def test_tables_on_demand(seedgraph_graph, seedgraph_session):
     from sqlalchemy import text
 
-    graph(User, post=1)
-    graph(Label)
+    seedgraph_graph(User, post=1)
+    seedgraph_graph(Label)
 
-    names = session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
+    names = seedgraph_session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
     names = {name for (name,) in names if not name.startswith("sqlite_")}
     assert {"users", "posts", "comments", "labels"} <= names
 '''
@@ -111,13 +111,13 @@ def test_each_test_starts_on_a_fresh_database(pytester):
         f'''
 {MINI_MODELS}
 
-def test_first_seeds_three(graph):
-    graph_obj = graph(User)
+def test_first_seeds_three(seedgraph_graph):
+    graph_obj = seedgraph_graph(User)
     assert len(graph_obj.users) == 3
 
 
-def test_second_finds_a_fresh_base(graph):
-    graph_obj = graph(User)
+def test_second_finds_a_fresh_base(seedgraph_graph):
+    graph_obj = seedgraph_graph(User)
     assert len(graph_obj.users) == 3
 '''
     )
@@ -132,13 +132,13 @@ def test_library_seed_works_on_the_plugin_session(pytester):
         f'''
 {MINI_MODELS}
 
-def test_library_seed_on_plugin_session(session):
+def test_library_seed_on_plugin_session(seedgraph_session):
     from seedgraph import seed
 
-    User.metadata.create_all(session.get_bind())
-    Post.metadata.create_all(session.get_bind())
+    User.metadata.create_all(seedgraph_session.get_bind())
+    Post.metadata.create_all(seedgraph_session.get_bind())
 
-    graph_obj = seed(session, User)
+    graph_obj = seed(seedgraph_session, User)
     assert len(graph_obj.users) == 3
 '''
     )
@@ -166,8 +166,8 @@ def test_graph_fixture_accepts_generators_and_overrides(pytester):
         f'''
 {MINI_MODELS}
 
-def test_all_three_channels(graph):
-    graph_obj = graph(
+def test_all_three_channels(seedgraph_graph):
+    graph_obj = seedgraph_graph(
         User,
         post=2,
         post__comment=1,
@@ -195,7 +195,7 @@ from sqlalchemy.orm import Session
 
 
 @pytest.fixture()
-def session():
+def seedgraph_session():
     engine = create_engine("sqlite://")
 
     @event.listens_for(engine, "connect")
@@ -203,21 +203,21 @@ def session():
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
         dbapi_conn.execute("CREATE TABLE custom_flag (id INTEGER PRIMARY KEY)")
 
-    with Session(engine) as session:
-        yield session
+    with Session(engine) as seedgraph_session:
+        yield seedgraph_session
 '''
     )
     pytester.makepyfile(
         f'''
 {MINI_MODELS}
 
-def test_the_conftest_session_wins(session, graph):
+def test_the_conftest_session_wins(seedgraph_session, seedgraph_graph):
     from sqlalchemy import text
 
-    tables = session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
+    tables = seedgraph_session.connection().execute(text("SELECT name FROM sqlite_master")).fetchall()
     assert ("custom_flag",) in tables
 
-    graph_obj = graph(User, post=1)
+    graph_obj = seedgraph_graph(User, post=1)
     assert len(graph_obj.users) == 3
 '''
     )
@@ -233,12 +233,12 @@ def test_async_fixtures_served_without_configuration(pytester):
         f'''
 {MINI_MODELS}
 
-async def test_async_world(asession, agraph):
-    graph_obj = await agraph(User, post=2)
+async def test_async_world(seedgraph_asession, seedgraph_agraph):
+    graph_obj = await seedgraph_agraph(User, post=2)
 
     assert len(graph_obj.users) == 3
     assert len(graph_obj.posts) == 6
-    await asession.flush()
+    await seedgraph_asession.flush()
 '''
     )
 
@@ -253,17 +253,17 @@ def test_async_graph_accepts_channels_and_restarts_above_rows(pytester):
         f'''
 {MINI_MODELS}
 
-async def test_channels_and_boundary(agraph, asession):
-    first = await agraph(User, post=1, generators={{User: {{"name": lambda ctx: "custom"}}}},
+async def test_channels_and_boundary(seedgraph_agraph, seedgraph_asession):
+    first = await seedgraph_agraph(User, post=1, generators={{User: {{"name": lambda ctx: "custom"}}}},
                          overrides={{Post: {{"title": "imposed"}}}})
     assert all(user.name == "custom" for user in first.users)
     assert all(post.title == "imposed" for post in first.posts)
 
-    asession.add_all([User(id=50, name="legacy", email="legacy@x")])
-    await asession.commit()
+    seedgraph_asession.add_all([User(id=50, name="legacy", email="legacy@x")])
+    await seedgraph_asession.commit()
 
-    second = await agraph(User, post=1)
-    await asession.flush()
+    second = await seedgraph_agraph(User, post=1)
+    await seedgraph_asession.flush()
     assert [user.id for user in second.users] == [51, 52, 53]
 '''
     )
@@ -285,6 +285,38 @@ sys.modules["aiosqlite"] = None
         '''
 def test_plain_sync_math():
     assert 1 + 1 == 2
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
+
+
+def test_the_prefixed_fixtures_live_beside_a_project_own_session_and_graph(pytester):
+    pytester.makeconftest(
+        """
+import pytest
+
+
+@pytest.fixture()
+def session():
+    return "the project's session"
+
+
+@pytest.fixture()
+def graph():
+    return "the project's graph"
+"""
+    )
+    pytester.makepyfile(
+        f'''
+{MINI_MODELS}
+
+def test_both_worlds(session, graph, seedgraph_graph):
+    assert session == "the project's session"
+    assert graph == "the project's graph"
+    assert len(seedgraph_graph(User).users) == 3
 '''
     )
 
