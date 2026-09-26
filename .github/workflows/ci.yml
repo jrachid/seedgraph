@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - run: uv sync --all-extras --locked
+      - run: uv run ruff check .
+      - run: uv run mypy
+
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --all-extras --locked
+      - run: uv run pytest
+        env:
+          SEEDGRAPH_REQUIRE_POSTGRES: "1"
+
+  installed-package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - extra: ""
+            tests: test_user_project.py::test_sync_fixture
+          - extra: "[async]"
+            tests: test_user_project.py
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          python-version: "3.13"
+      - run: uv build
+      - name: Install the wheel in a fresh environment
+        run: |
+          uv venv "$RUNNER_TEMP/env"
+          uv pip install --python "$RUNNER_TEMP/env" "seedgraph${{ matrix.extra }} @ file://$(ls "$PWD"/dist/*.whl)" pytest pytest-asyncio
+      - name: Import the package and its pytest plugin
+        run: "$RUNNER_TEMP/env/bin/python -c 'import seedgraph, seedgraph.pytest_plugin'"
+      - name: Run a user project against it
+        working-directory: ci/smoke
+        run: "$RUNNER_TEMP/env/bin/python -m pytest -p no:cacheprovider ${{ matrix.tests }}"

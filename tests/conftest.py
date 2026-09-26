@@ -1,3 +1,4 @@
+import os
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
@@ -8,12 +9,14 @@ from sqlalchemy.orm import Session
 
 @pytest.fixture(scope="session")
 def pg_url() -> Iterator[str]:
-    """Serve the psycopg URL of a disposable PostgreSQL, or skip when Docker does not answer."""
+    """Serve the psycopg URL of a disposable PostgreSQL; skip when Docker does not answer, unless SEEDGRAPH_REQUIRE_POSTGRES is set."""
     try:
         from testcontainers.community.postgres import PostgresContainer
 
         container = PostgresContainer("postgres:16-alpine", driver="psycopg").start()
-    except Exception as exc:  # noqa: BLE001 — sans Docker, les tests Postgres se sautent au lieu d'échouer
+    except Exception as exc:
+        if os.environ.get("SEEDGRAPH_REQUIRE_POSTGRES"):
+            raise
         pytest.skip(f"PostgreSQL container unavailable: {exc}")
     try:
         yield container.get_connection_url()

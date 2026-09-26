@@ -69,3 +69,4 @@ ignore = ["ANN401"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
+"ci/**" = ["ANN"]
