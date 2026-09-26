@@ -40,7 +40,7 @@ from seedgraph.shape import (
 from seedgraph.uniqueness import UniqueRepair
 from seedgraph.verification import IncoherentGraphError, verify_graph
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"
 
 __all__ = [
     "AmbiguousParentError",

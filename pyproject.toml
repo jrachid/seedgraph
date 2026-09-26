@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seedgraph"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Seed your SQLAlchemy models as a referentially-consistent graph — one call, shared parents, real PKs."
 readme = "README.md"
 license = "MIT"
@@ -20,8 +20,14 @@ classifiers = [
     "Framework :: Pytest",
     "Topic :: Database",
     "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
 ]
 dependencies = ["sqlalchemy>=2.0", "faker>=30"]
+
+[project.urls]
+Homepage = "https://github.com/jrachid/seedgraph"
+Repository = "https://github.com/jrachid/seedgraph"
+Issues = "https://github.com/jrachid/seedgraph/issues"
 
 [project.optional-dependencies]
 dev = [
