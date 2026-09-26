@@ -120,7 +120,10 @@ def validate_column_declarations(generators: GeneratorMap | None, overrides: Ove
             existing = {column.key for column in mapped_table(model).columns}
             for column in columns:
                 if column not in existing:
-                    raise error(f"unknown {verb} column {column!r} for {model.__name__}")
+                    choices = ", ".join(sorted(existing))
+                    raise error(
+                        f"unknown {verb} column {column!r} for {model.__name__} — columns: {choices}"
+                    )
 
 
 class GenerationState:
