@@ -116,7 +116,23 @@ def _resolve_segment(model: type[DeclarativeBase], segment: str) -> Relationship
             if rel.mapper.class_.__name__.lower() == segment and not rel.viewonly
         ]
         if not matches:
-            raise UnknownShapeKeyError(f"unknown shape key {segment!r} for {model.__name__}")
+            walkable = [rel for rel in mapper.relationships
+                        if not rel.viewonly and rel.direction.name in {"ONETOMANY", "MANYTOMANY"}]
+            known = {rel.key for rel in walkable}
+            for rel in walkable:
+                alias = rel.mapper.class_.__name__.lower()
+                aliases = [other for other in mapper.relationships
+                           if not other.viewonly and other.mapper.class_.__name__.lower() == alias]
+                # Exact relationship names win; do not suggest an ambiguous alias
+                # or one shadowed by an unsupported relationship.
+                if len(aliases) == 1 and not any(
+                    other.key == alias and other not in walkable for other in mapper.relationships
+                ):
+                    known.add(alias)
+            choices = ", ".join(sorted(known)) or "(none)"
+            raise UnknownShapeKeyError(
+                f"unknown shape key {segment!r} for {model.__name__} — known keys: {choices}"
+            )
         if len(matches) > 1:
             names = ", ".join(sorted(rel.key for rel in matches))
             raise AmbiguousShapeKeyError(
