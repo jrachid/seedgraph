@@ -4,8 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from sqlalchemy import Column, inspect
-from sqlalchemy.orm import DeclarativeBase, class_mapper
-from sqlalchemy.orm.relationships import Relationship
+from sqlalchemy.orm import DeclarativeBase, RelationshipProperty, class_mapper
 
 from seedgraph.exceptions import SeedgraphError
 from seedgraph.generators import (
@@ -16,6 +15,7 @@ from seedgraph.generators import (
     OverrideMap,
     UnsupportedPlaceholderError,
     database_fills,
+    mapped_table,
     validate_column_declarations,
 )
 
@@ -89,7 +89,7 @@ def build_graph(
 
 def _resolve_tree(model: type[DeclarativeBase], counts: Mapping[str, int]) -> dict[str, Any]:
     """Resolve every shape key into a navigated tree — errors fire before anything is built."""
-    root = {"children": {}}
+    root: dict[str, Any] = {"children": {}}
     for key, count in counts.items():
         _check_count(key, count)
         node = root
@@ -104,7 +104,7 @@ def _resolve_tree(model: type[DeclarativeBase], counts: Mapping[str, int]) -> di
     return root
 
 
-def _resolve_segment(model: type[DeclarativeBase], segment: str) -> Relationship:
+def _resolve_segment(model: type[DeclarativeBase], segment: str) -> RelationshipProperty[Any]:
     """Resolve one shape segment: exact relationship key first, then the model it points at."""
     mapper = class_mapper(model)
     exact = [rel for rel in mapper.relationships if rel.key == segment]
@@ -127,7 +127,7 @@ def _resolve_segment(model: type[DeclarativeBase], segment: str) -> Relationship
     return _check_relationship(model, segment, relationship)
 
 
-def _check_relationship(model: type[DeclarativeBase], segment: str, relationship: Relationship) -> Relationship:
+def _check_relationship(model: type[DeclarativeBase], segment: str, relationship: RelationshipProperty[Any]) -> RelationshipProperty[Any]:
     walked = f"shape key {segment!r} walks {model.__name__}.{relationship.key}"
     if relationship.viewonly:
         raise UnsupportedShapeDirectionError(f"{walked}, a viewonly relationship — nothing would be written")
@@ -183,7 +183,7 @@ class _ParentLinker:
             if parent is not None:
                 setattr(obj, relationship.key, parent)
 
-    def _parent_for(self, obj: Any, relationship: Relationship, ancestors: Sequence[Any]) -> Any:
+    def _parent_for(self, obj: Any, relationship: RelationshipProperty[Any], ancestors: Sequence[Any]) -> Any:
         target = relationship.mapper.class_
         required = _is_required(relationship)
         if required:
@@ -206,7 +206,7 @@ class _ParentLinker:
             raise MissingRequiredParentError(self._unreachable(obj, relationship, target))
         return self._generate(target)
 
-    def _share(self, obj: Any, relationship: Relationship) -> None:
+    def _share(self, obj: Any, relationship: RelationshipProperty[Any]) -> None:
         collection = getattr(obj, relationship.key)
         for shared in self._provided.get(relationship.mapper.class_, []):
             if shared not in collection:
@@ -221,7 +221,7 @@ class _ParentLinker:
         self._objects.append(parent)
         return parent
 
-    def _unreachable(self, obj: Any, relationship: Relationship, target: type) -> str:
+    def _unreachable(self, obj: Any, relationship: RelationshipProperty[Any], target: type) -> str:
         where = f"{type(obj).__name__}.{relationship.key} requires a {target.__name__}"
         if target is type(obj):
             return (
@@ -239,7 +239,7 @@ def _index_parents(parents: Sequence[Any]) -> dict[type, list[Any]]:
     return provided
 
 
-def _is_required(relationship: Relationship) -> bool:
+def _is_required(relationship: RelationshipProperty[Any]) -> bool:
     """A link is required when any of its local FK columns is NOT NULL."""
     return any(not local_column.nullable for local_column, _ in relationship.local_remote_pairs)
 
@@ -253,7 +253,7 @@ def _build_object(model: type[DeclarativeBase], generator: FieldGenerator) -> An
     """Build one object of the model: generate eligible columns, apply declared overrides elsewhere."""
     obj = model()
     mapper = class_mapper(type(obj))
-    for column in mapper.local_table.columns:
+    for column in mapped_table(model).columns:
         if column.foreign_keys:
             continue
         key = mapper.get_property_by_column(column).key

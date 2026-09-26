@@ -4,7 +4,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import MetaData
-from sqlalchemy.orm import class_mapper
+
+from seedgraph.generators import mapped_table
 
 __all__ = ["Graph"]
 
@@ -20,7 +21,7 @@ class Graph:
         self._table_names = sorted(table.name for table in metadata.tables.values())
         grouped: dict[str, list[Any]] = {}
         for obj in objects:
-            grouped.setdefault(class_mapper(type(obj)).local_table.name, []).append(obj)
+            grouped.setdefault(mapped_table(type(obj)).name, []).append(obj)
         for table_name, group in grouped.items():
             setattr(self, table_name, group)
 

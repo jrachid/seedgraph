@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import Column
 from sqlalchemy.orm import class_mapper
 
-from seedgraph.generators import FieldGenerator, UniqueValueExhaustedError, is_unique
+from seedgraph.generators import FieldGenerator, UniqueValueExhaustedError, is_unique, mapped_table
 
 __all__ = ["UniqueRepair"]
 
@@ -22,7 +22,7 @@ class UniqueRepair:
         self._slots: list[tuple[Any, Column[Any], str]] = []
         for obj in objects:
             mapper = class_mapper(type(obj))
-            for column in mapper.local_table.columns:
+            for column in mapped_table(type(obj)).columns:
                 if column.foreign_keys or not is_unique(column):
                     continue
                 if generator.is_overridden(type(obj), column):

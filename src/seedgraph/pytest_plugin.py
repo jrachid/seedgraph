@@ -18,11 +18,13 @@ from seedgraph.generators import GeneratorMap, OverrideMap
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-try:
-    # pytest-asyncio's default strict mode only runs async fixtures declared through its own decorator.
-    from pytest_asyncio import fixture as async_fixture
-except ImportError:
     async_fixture = pytest.fixture
+else:
+    try:
+        # pytest-asyncio's default strict mode only runs async fixtures declared through its own decorator.
+        from pytest_asyncio import fixture as async_fixture
+    except ImportError:
+        async_fixture = pytest.fixture
 
 __all__ = ["seedgraph_agraph", "seedgraph_asession", "seedgraph_graph", "seedgraph_session"]
 

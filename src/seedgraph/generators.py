@@ -5,7 +5,7 @@ Its world is (column, fake) -> value. No session, no shape, no graph.
 
 from collections.abc import Callable
 from functools import cache
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, TypeGuard, cast
 
 from faker import Faker
 from sqlalchemy import (
@@ -117,7 +117,7 @@ def validate_column_declarations(generators: GeneratorMap | None, overrides: Ove
     )
     for declarations, error, verb in errors:
         for model, columns in (declarations or {}).items():
-            existing = {column.key for column in class_mapper(model).local_table.columns}
+            existing = {column.key for column in mapped_table(model).columns}
             for column in columns:
                 if column not in existing:
                     raise error(f"unknown {verb} column {column!r} for {model.__name__}")
@@ -137,7 +137,8 @@ class GenerationState:
 
 def generation_state(info: dict[Any, Any]) -> GenerationState:
     """Return the session's generation state, created on its first seed() from ``session.info``."""
-    return info.setdefault(SESSION_INFO_KEY, GenerationState())
+    state: GenerationState = info.setdefault(SESSION_INFO_KEY, GenerationState())
+    return state
 
 
 class GenerationContext:
@@ -221,7 +222,8 @@ class FieldGenerator:
         if _is_text(column.type):
             hint = COLUMN_HINTS.get(column.key.lower())
             if hint is not None:
-                return getattr(self._fake, hint)
+                provider: Callable[[], Any] = getattr(self._fake, hint)
+                return provider
         return self._type_provider(column.type)
 
     def _type_provider(self, type_: TypeEngine[Any]) -> Callable[[], Any] | None:
@@ -267,6 +269,11 @@ class FieldGenerator:
         return lambda: self._fake.pydecimal(left_digits=left, right_digits=right, positive=True)
 
 
+def mapped_table(model: type) -> Table:
+    """Return the table a declarative model maps, typed as the ``Table`` SQLAlchemy only promises as a clause."""
+    return cast(Table, class_mapper(model).local_table)
+
+
 @cache
 def is_unique(column: Column[Any]) -> bool:
     """A generated column seedgraph keeps unique alone: flagged, alone in a unique constraint or index, or chosen for one.
@@ -289,12 +296,12 @@ _VALUE_SPACE = ["text", "identifier", "number", "moment"]
 def _carrier(columns: list[Column[Any]]) -> Column[Any] | None:
     if len(columns) == 1:
         return columns[0]
-    candidates = [
-        column
+    spaces = {
+        column: space
         for column in columns
-        if not column.foreign_keys and not database_fills(column) and _value_space(column.type) is not None
-    ]
-    return min(candidates, key=lambda column: _VALUE_SPACE.index(_value_space(column.type)), default=None)
+        if not column.foreign_keys and not database_fills(column) and (space := _value_space(column.type)) is not None
+    }
+    return min(spaces, key=lambda column: _VALUE_SPACE.index(spaces[column]), default=None)
 
 
 def _value_space(type_: TypeEngine[Any]) -> str | None:
@@ -316,7 +323,7 @@ def database_fills(column: Column[Any]) -> bool:
     return column is column.table.autoincrement_column or column.default is not None or column.server_default is not None
 
 
-def _is_text(type_: TypeEngine[Any]) -> bool:
+def _is_text(type_: TypeEngine[Any]) -> TypeGuard[String]:
     return isinstance(type_, String) and not isinstance(type_, Enum)
 
 

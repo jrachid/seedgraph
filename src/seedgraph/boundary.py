@@ -33,7 +33,7 @@ def check_parents_attached(session: Session, parents: Sequence[Any]) -> None:
 
 def taken_values(session: Session, column: Column[Any], candidates: Sequence[Any]) -> set[Any]:
     """Return the candidates the column already holds in the database, without flushing the session."""
-    taken = set()
+    taken: set[Any] = set()
     with session.no_autoflush:
         for start in range(0, len(candidates), CHUNK):
             taken.update(session.scalars(select(column).where(column.in_(candidates[start : start + CHUNK]))))
@@ -42,7 +42,7 @@ def taken_values(session: Session, column: Column[Any], candidates: Sequence[Any
 
 async def taken_values_async(session: AsyncSession, column: Column[Any], candidates: Sequence[Any]) -> set[Any]:
     """Twin of ``taken_values`` on an AsyncSession."""
-    taken = set()
+    taken: set[Any] = set()
     with session.sync_session.no_autoflush:
         for start in range(0, len(candidates), CHUNK):
             taken.update(await session.scalars(select(column).where(column.in_(candidates[start : start + CHUNK]))))
