@@ -152,7 +152,7 @@ async def test_feed_async(seedgraph_agraph):
 - [x] Database-assigned keys and post-flush verification, PostgreSQL in the test suite
 - [x] Type-valid values, uniqueness against existing rows, existing and generated parents
 - [x] Many-to-many shapes, generated natural keys, multi-column uniqueness, arrays
-- [ ] Publication on PyPI
+- [x] Publication on PyPI
 
 ## Installation
 
