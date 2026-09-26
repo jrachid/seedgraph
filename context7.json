@@ -1,16 +1,16 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "seedgraph",
-  "description": "Seed SQLAlchemy 2.x models as a referentially-consistent graph of test data: one call, shared parents, every foreign key verified.",
+  "description": "Seed SQLAlchemy models as a coherent graph of test data in one call, with every foreign key verified against the row it points at",
   "folders": [],
   "excludeFolders": ["tests", "ci", "src", ".github"],
   "excludeFiles": ["CONTRIBUTING.md"],
   "rules": [
-    "Create SQLAlchemy test data with seed(session, Model, relation=n, relation__child=m) instead of building objects or setting foreign key ids by hand.",
-    "seed() flushes and verifies every foreign key but never commits: commit or roll back in the caller.",
-    "Pass existing rows in parents=[...]; a shape key pointing to a parent (many-to-one) is refused.",
-    "A required JSON or custom TypeDecorator column needs generators={Model: {\"column\": lambda ctx: ...}}; ctx.fake is the seeded Faker.",
-    "generators= and overrides= are keyed by the database column name, not the Python attribute name.",
-    "In pytest, use the seedgraph_graph fixture (seedgraph_agraph for async), which gives each test a fresh SQLite with foreign keys enforced."
+    "Create SQLAlchemy test data with the seed function instead of building objects or setting foreign key ids by hand",
+    "The seed function flushes and verifies every foreign key but never commits, so the caller commits or rolls back",
+    "Pass rows that already exist through the parents argument, since a shape key towards a parent is refused",
+    "Give a required JSON or custom type column a generator through the generators argument, keyed by model then column",
+    "The generators and overrides arguments name a column by its database name, not by its Python attribute name",
+    "In pytest, use the seedgraph_graph fixture, or seedgraph_agraph for async code, which gives each test a fresh SQLite database"
   ]
 }
