@@ -3,16 +3,20 @@
 Every fixture carries the ``seedgraph_`` prefix, so it never shadows a project's own ``session``.
 """
 
+from __future__ import annotations
+
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlalchemy import create_engine, event
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session
 
 from seedgraph import Graph, seed, seed_async
 from seedgraph.generators import GeneratorMap, OverrideMap
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 __all__ = ["seedgraph_agraph", "seedgraph_asession", "seedgraph_graph", "seedgraph_session"]
 
@@ -52,6 +56,9 @@ def seedgraph_graph(seedgraph_session: Session) -> Callable[..., Graph]:
 @pytest.fixture()
 async def seedgraph_asession() -> AsyncIterator[AsyncSession]:
     """Serve a fresh in-memory aiosqlite AsyncSession with foreign keys enforced."""
+    # Imported here: sqlalchemy.ext.asyncio needs greenlet, which only the async extra installs.
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
     engine = create_async_engine("sqlite+aiosqlite://")
 
     @event.listens_for(engine.sync_engine, "connect")

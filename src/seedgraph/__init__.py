@@ -4,10 +4,11 @@ Declare a shape, get a coherent object graph: written to the session, every FK
 column verified against the key of the row it points at.
 """
 
-from collections.abc import Sequence
-from typing import Any
+from __future__ import annotations
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
+
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from seedgraph.boundary import (
@@ -39,6 +40,9 @@ from seedgraph.shape import (
 )
 from seedgraph.uniqueness import UniqueRepair
 from seedgraph.verification import IncoherentGraphError, verify_graph
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 __version__ = "0.1.0"
 

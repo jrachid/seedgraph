@@ -1,13 +1,17 @@
 """Read what already exists at the boundary: provided parents, and the values unique columns already hold."""
 
+from __future__ import annotations
+
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Column, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from seedgraph.exceptions import SeedgraphError
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 __all__ = ["UnattachedParentError", "check_parents_attached", "taken_values", "taken_values_async"]
 

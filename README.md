@@ -157,9 +157,10 @@ async def test_feed_async(seedgraph_agraph):
 
 ```bash
 pip install seedgraph
+pip install "seedgraph[async]"  # for seed_async and the async pytest fixtures
 ```
 
-Requires Python 3.11+, SQLAlchemy 2.x and Faker 30+. The PostgreSQL tests of the suite need Docker and are skipped without it.
+Requires Python 3.11+, SQLAlchemy 2.x and Faker 30+. The async extra adds greenlet (through `sqlalchemy[asyncio]`) and aiosqlite. The PostgreSQL tests of the suite need Docker and are skipped without it.
 
 ## License
 
