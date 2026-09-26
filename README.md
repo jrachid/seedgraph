@@ -8,7 +8,7 @@
 
 **Status: alpha** — the API may still change before 1.0. Every guarantee below is backed by a named test, on SQLite and on PostgreSQL.
 
-**Documentation**: [jrachid.github.io/seedgraph](https://jrachid.github.io/seedgraph/) — recipes for pytest, FastAPI and custom column types, and the API reference.
+**Documentation**: [jrachid.github.io/seedgraph](https://jrachid.github.io/seedgraph/) — recipes for pytest, FastAPI and custom column types, the API reference, and [a Claude Code plugin](https://jrachid.github.io/seedgraph/agents/) that teaches coding agents to use seedgraph.
 
 ## Quick start
 

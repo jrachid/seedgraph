@@ -11,6 +11,7 @@ nav:
       - pytest on your own database: recipes/pytest.md
       - FastAPI endpoints: recipes/fastapi.md
       - Custom and JSON columns: recipes/custom-columns.md
+  - Coding agents: agents.md
   - API reference: reference.md
 
 theme:
@@ -72,5 +73,7 @@ plugins:
           - recipes/pytest.md: Seed your own test database with one rolled-back session per test
           - recipes/fastapi.md: Seed data for FastAPI endpoint tests through dependency_overrides
           - recipes/custom-columns.md: Fill JSON and custom TypeDecorator columns with generators and overrides
+        Coding agents:
+          - agents.md: Install the Claude Code plugin, or paste a paragraph into AGENTS.md or CLAUDE.md
         Reference:
           - reference.md: seed, seed_async, Graph, the pytest fixtures and every error
