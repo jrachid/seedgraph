@@ -18,6 +18,12 @@ from seedgraph.generators import GeneratorMap, OverrideMap
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+try:
+    # pytest-asyncio's default strict mode only runs async fixtures declared through its own decorator.
+    from pytest_asyncio import fixture as async_fixture
+except ImportError:
+    async_fixture = pytest.fixture
+
 __all__ = ["seedgraph_agraph", "seedgraph_asession", "seedgraph_graph", "seedgraph_session"]
 
 
@@ -53,7 +59,7 @@ def seedgraph_graph(seedgraph_session: Session) -> Callable[..., Graph]:
     return make
 
 
-@pytest.fixture()
+@async_fixture()
 async def seedgraph_asession() -> AsyncIterator[AsyncSession]:
     """Serve a fresh in-memory aiosqlite AsyncSession with foreign keys enforced."""
     # Imported here: sqlalchemy.ext.asyncio needs greenlet, which only the async extra installs.
@@ -70,7 +76,7 @@ async def seedgraph_asession() -> AsyncIterator[AsyncSession]:
     await engine.dispose()
 
 
-@pytest.fixture()
+@async_fixture()
 async def seedgraph_agraph(seedgraph_asession: AsyncSession) -> Callable[..., Any]:
     """Serve an awaited seed callable on the fresh async session; tables on demand."""
 

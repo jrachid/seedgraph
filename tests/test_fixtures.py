@@ -247,6 +247,25 @@ async def test_async_world(seedgraph_asession, seedgraph_agraph):
     result.assert_outcomes(passed=1)
 
 
+def test_async_fixtures_run_under_the_default_strict_asyncio_mode(pytester):
+    pytester.makepyfile(
+        f'''
+import pytest
+
+{MINI_MODELS}
+
+@pytest.mark.asyncio
+async def test_strict_mode(seedgraph_agraph):
+    graph_obj = await seedgraph_agraph(User, post=2)
+    assert len(graph_obj.posts) == 6
+'''
+    )
+
+    result = pytester.runpytest_subprocess()
+
+    result.assert_outcomes(passed=1)
+
+
 def test_async_graph_accepts_channels_and_restarts_above_rows(pytester):
     pytester.makepyprojecttoml('[tool.pytest.ini_options]\nasyncio_mode = "auto"\n')
     pytester.makepyfile(
