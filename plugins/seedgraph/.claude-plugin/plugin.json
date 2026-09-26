@@ -1,0 +1,11 @@
+{
+  "name": "seedgraph",
+  "description": "Teaches Claude to create SQLAlchemy test data with seedgraph: one call, related rows, every foreign key verified",
+  "author": {
+    "name": "Rachid Jeffali"
+  },
+  "homepage": "https://jrachid.github.io/seedgraph/",
+  "repository": "https://github.com/jrachid/seedgraph",
+  "license": "MIT",
+  "keywords": ["sqlalchemy", "testing", "test-data", "pytest"]
+}

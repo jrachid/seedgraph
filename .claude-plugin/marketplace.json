@@ -1,0 +1,14 @@
+{
+  "name": "seedgraph",
+  "description": "Claude Code plugins for seedgraph, SQLAlchemy test data with verified foreign keys",
+  "owner": {
+    "name": "Rachid Jeffali"
+  },
+  "plugins": [
+    {
+      "name": "seedgraph",
+      "source": "./plugins/seedgraph",
+      "description": "Teaches Claude to create SQLAlchemy test data with seedgraph: one call, related rows, every foreign key verified"
+    }
+  ]
+}
