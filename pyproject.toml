@@ -5,14 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "seedgraph"
 version = "0.1.2"
-description = "Seed your SQLAlchemy models as a referentially-consistent graph — one call, shared parents, real PKs."
+description = "Seed your SQLAlchemy models as a referentially-consistent graph — one call, shared parents, verified links."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [{ name = "Rachid Jeffali" }]
-keywords = ["sqlalchemy", "seed", "fixtures", "testing", "orm", "foreign-keys"]
+keywords = ["sqlalchemy", "seed", "fixtures", "testing", "orm", "foreign-keys", "test-data", "factory", "faker", "pytest"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
