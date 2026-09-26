@@ -82,6 +82,19 @@ def test_a_new_session_on_a_populated_database_skips_the_values_already_taken(en
     assert len(set(values)) == 6
 
 
+def test_a_value_the_session_holds_but_has_not_flushed_is_skipped(engine):
+    with Session(engine) as session:
+        upcoming = seed(session, Member).members[0].email
+        session.rollback()
+
+    with Session(engine) as session:
+        session.add(Member(email=upcoming))
+        graph = seed(session, Member)
+        session.flush()
+
+    assert upcoming not in {member.email for member in graph.members}
+
+
 def test_a_generator_that_cannot_produce_new_values_is_reported(engine):
     with Session(engine) as session, pytest.raises(UniqueValueExhaustedError, match="members.email"):
         seed(session, Member, generators={Member: {"email": lambda _: "same@example.com"}})

@@ -52,6 +52,7 @@ packages = ["src/seedgraph"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = ["postgres: needs Docker to start a disposable PostgreSQL"]
+filterwarnings = ["error::sqlalchemy.exc.SAWarning"]
 
 [tool.ruff]
 line-length = 100

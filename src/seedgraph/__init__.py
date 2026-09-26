@@ -85,6 +85,8 @@ def seed(
     Raises a ``SeedgraphError`` subclass on any bad declaration or broken link.
     """
     check_parents_attached(session, parents)
+    # Flushed before the graph links to pending objects, so the unique checks see their rows.
+    session.flush()
     state = generation_state(session.info)
     objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state, parents=parents)
     repair = UniqueRepair(objects, FieldGenerator(generators, overrides, state))
@@ -107,6 +109,7 @@ async def seed_async(
 ) -> Graph:
     """Twin of ``seed`` on an AsyncSession: same contract, the flush is awaited."""
     check_parents_attached(session.sync_session, parents)
+    await session.flush()
     state = generation_state(session.sync_session.info)
     objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state, parents=parents)
     repair = UniqueRepair(objects, FieldGenerator(generators, overrides, state))
