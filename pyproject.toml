@@ -41,6 +41,7 @@ dev = [
     "psycopg[binary]>=3.1",
     "asyncpg>=0.29",
     "mypy>=1.11",
+    "polyfactory>=3.3.0",
 ]
 
 [project.entry-points.pytest11]
