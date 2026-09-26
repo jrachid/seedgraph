@@ -6,9 +6,10 @@ column verified against the key of the row it points at.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Session
 
 from seedgraph.boundary import (
@@ -67,6 +68,78 @@ __all__ = [
 ]
 
 
+MAX_WRITE_ATTEMPTS = 5
+
+
+def savepoints_commit(session: Session, model: type[DeclarativeBase]) -> bool:
+    """Tell whether releasing a SAVEPOINT on this session's database commits everything written so far."""
+    # pysqlite and aiosqlite open no transaction before a SAVEPOINT, so releasing it commits the session's work.
+    return session.get_bind(model).dialect.name == "sqlite"
+
+
+def repair_unique(session: Session, objects: Sequence[Any], generator: FieldGenerator) -> bool:
+    """Regenerate the generated unique values the database already holds; tell whether any was taken."""
+    repair = UniqueRepair(objects, generator)
+    regenerated = False
+    while queries := repair.queries():
+        taken = {column: taken_values(session, column, values) for column, values in queries}
+        regenerated = regenerated or any(taken.values())
+        repair.reject(taken)
+    return regenerated
+
+
+async def repair_unique_async(session: AsyncSession, objects: Sequence[Any], generator: FieldGenerator) -> bool:
+    """Twin of ``repair_unique`` on an AsyncSession."""
+    repair = UniqueRepair(objects, generator)
+    regenerated = False
+    while queries := repair.queries():
+        taken = {column: await taken_values_async(session, column, values) for column, values in queries}
+        regenerated = regenerated or any(taken.values())
+        repair.reject(taken)
+    return regenerated
+
+
+def write_through_savepoints(session: Session, build: Callable[[], list[Any]], generator: FieldGenerator) -> list[Any]:
+    """Build and flush the graph in a SAVEPOINT, regenerating the unique values another session committed meanwhile."""
+    objects: list[Any] | None = None
+    for attempt in range(1, MAX_WRITE_ATTEMPTS + 1):
+        try:
+            # Opened before build() links the graph to its parents: opening a SAVEPOINT flushes the session.
+            with session.begin_nested():
+                if objects is None:
+                    objects = build()
+                session.add_all(objects)
+                session.flush()
+            return objects
+        except IntegrityError:
+            if objects is None or attempt == MAX_WRITE_ATTEMPTS or not repair_unique(session, objects, generator):
+                raise
+    raise AssertionError("unreachable")
+
+
+async def write_through_savepoints_async(
+    session: AsyncSession, build: Callable[[], Awaitable[list[Any]]], generator: FieldGenerator
+) -> list[Any]:
+    """Twin of ``write_through_savepoints`` on an AsyncSession."""
+    objects: list[Any] | None = None
+    for attempt in range(1, MAX_WRITE_ATTEMPTS + 1):
+        try:
+            async with session.begin_nested():
+                if objects is None:
+                    objects = await build()
+                session.add_all(objects)
+                await session.flush()
+            return objects
+        except IntegrityError:
+            if (
+                objects is None
+                or attempt == MAX_WRITE_ATTEMPTS
+                or not await repair_unique_async(session, objects, generator)
+            ):
+                raise
+    raise AssertionError("unreachable")
+
+
 def seed(
     session: Session,
     model: type[DeclarativeBase],
@@ -88,12 +161,19 @@ def seed(
     # Flushed before the graph links to pending objects, so the unique checks see their rows.
     session.flush()
     state = generation_state(session.info)
-    objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state, parents=parents)
-    repair = UniqueRepair(objects, FieldGenerator(generators, overrides, state))
-    while queries := repair.queries():
-        repair.reject({column: taken_values(session, column, values) for column, values in queries})
-    session.add_all(objects)
-    session.flush()
+    generator = FieldGenerator(generators, overrides, state)
+
+    def build() -> list[Any]:
+        objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state, parents=parents)
+        repair_unique(session, objects, generator)
+        return objects
+
+    if savepoints_commit(session, model):
+        objects = build()
+        session.add_all(objects)
+        session.flush()
+    else:
+        objects = write_through_savepoints(session, build, generator)
     verify_graph(objects)
     return Graph(objects, model.metadata)
 
@@ -111,11 +191,18 @@ async def seed_async(
     check_parents_attached(session.sync_session, parents)
     await session.flush()
     state = generation_state(session.sync_session.info)
-    objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state, parents=parents)
-    repair = UniqueRepair(objects, FieldGenerator(generators, overrides, state))
-    while queries := repair.queries():
-        repair.reject({column: await taken_values_async(session, column, values) for column, values in queries})
-    session.add_all(objects)
-    await session.flush()
+    generator = FieldGenerator(generators, overrides, state)
+
+    async def build() -> list[Any]:
+        objects = build_graph(model, shape, generators=generators, overrides=overrides, state=state, parents=parents)
+        await repair_unique_async(session, objects, generator)
+        return objects
+
+    if savepoints_commit(session.sync_session, model):
+        objects = await build()
+        session.add_all(objects)
+        await session.flush()
+    else:
+        objects = await write_through_savepoints_async(session, build, generator)
     verify_graph(objects)
     return Graph(objects, model.metadata)

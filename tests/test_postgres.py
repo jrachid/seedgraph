@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import time
 import uuid
@@ -5,6 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import ForeignKey, String, func, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 from seedgraph import seed, seed_async
@@ -21,6 +23,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80))
     posts: Mapped[list["Post"]] = relationship(back_populates="author")
+    badges: Mapped[list["Badge"]] = relationship(back_populates="owner")
 
 
 class Post(Base):
@@ -35,6 +38,46 @@ class Member(Base):
     __tablename__ = "members"
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(120), unique=True)
+
+
+class Badge(Base):
+    __tablename__ = "badges"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), unique=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    owner: Mapped[User] = relationship(back_populates="badges")
+
+
+LOCK_WAITERS = text("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'")
+STATEMENT_TIMEOUT = text("SET statement_timeout = '15s'")
+
+
+def wait_for_a_session_blocked_on_a_lock(session):
+    deadline = time.monotonic() + 15
+    while not session.scalar(LOCK_WAITERS):
+        assert time.monotonic() < deadline, "the second session never reached the first one's pending rows"
+        time.sleep(0.05)
+
+
+def seed_in_a_second_session_while_the_first_is_pending(pg_session, first, seed_second):
+    errors = []
+
+    def run():
+        try:
+            with Session(pg_session.get_bind()) as second:
+                second.execute(STATEMENT_TIMEOUT)
+                seed_second(second)
+                second.commit()
+        except Exception as exc:  # noqa: BLE001 — le thread rapporte son échec au test
+            errors.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    wait_for_a_session_blocked_on_a_lock(pg_session)
+    first.commit()
+    first.close()
+    thread.join()
+    return errors
 
 
 class Token(Base):
@@ -76,7 +119,7 @@ def test_the_application_still_inserts_after_a_seed_on_top_of_its_rows(pg_sessio
     assert pg_session.scalar(select(func.max(User.id))) == 6
 
 
-def test_two_sessions_seeding_the_same_tables_at_once_do_not_collide_on_keys(pg_session):
+def test_two_sessions_seeding_the_same_tables_at_once_do_not_collide(pg_session):
     engine = pg_session.get_bind()
     Base.metadata.create_all(engine)
     errors = []
@@ -99,35 +142,80 @@ def test_two_sessions_seeding_the_same_tables_at_once_do_not_collide_on_keys(pg_
     assert pg_session.scalar(select(func.count()).select_from(Post)) == 80
 
 
-def test_two_sessions_seeding_a_generated_unique_column_at_once_are_stopped_by_the_database(pg_session):
+def test_a_unique_value_another_session_commits_mid_seed_is_regenerated(pg_session):
     engine = pg_session.get_bind()
     Base.metadata.create_all(engine)
-    errors = []
     first = Session(engine)
-    first.execute(text("SET statement_timeout = '15s'"))
+    first.execute(STATEMENT_TIMEOUT)
     seed(first, Member, member=20)
 
-    def seed_second_while_the_first_is_pending():
-        try:
-            with Session(engine) as second:
-                second.execute(text("SET statement_timeout = '15s'"))
-                seed(second, Member, member=20)
-                second.commit()
-        except IntegrityError as exc:
-            errors.append(exc)
+    errors = seed_in_a_second_session_while_the_first_is_pending(
+        pg_session, first, lambda second: seed(second, Member, member=20)
+    )
 
-    thread = threading.Thread(target=seed_second_while_the_first_is_pending)
-    thread.start()
+    assert errors == []
+    assert pg_session.scalar(select(func.count(func.distinct(Member.email)))) == 40
+
+
+def test_a_regenerated_graph_keeps_its_links_to_an_existing_parent(pg_session):
+    engine = pg_session.get_bind()
+    Base.metadata.create_all(engine)
+    pg_session.add(owner := User(name="owner"))
+    pg_session.commit()
+    first = Session(engine)
+    first.execute(STATEMENT_TIMEOUT)
+    seed(first, Badge, badge=20, parents=[first.get(User, owner.id)])
+
+    errors = seed_in_a_second_session_while_the_first_is_pending(
+        pg_session, first, lambda second: seed(second, Badge, badge=20, parents=[second.get(User, owner.id)])
+    )
+
+    assert errors == []
+    assert pg_session.scalar(select(func.count(func.distinct(Badge.code)))) == 40
+    assert pg_session.scalar(select(func.count()).select_from(Badge).where(Badge.owner_id == owner.id)) == 40
+
+
+async def test_the_async_facade_regenerates_a_unique_value_committed_mid_seed(pg_asession):
+    engine = pg_asession.bind
+    await pg_asession.run_sync(lambda sync: Base.metadata.create_all(sync.get_bind()))
+    await pg_asession.commit()
+    first = AsyncSession(engine)
+    await first.execute(STATEMENT_TIMEOUT)
+    await seed_async(first, Member, member=20)
+
+    async def seed_second():
+        async with AsyncSession(engine) as second:
+            await second.execute(STATEMENT_TIMEOUT)
+            await seed_async(second, Member, member=20)
+            await second.commit()
+
+    second = asyncio.create_task(seed_second())
     deadline = time.monotonic() + 15
-    while not pg_session.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'")):
+    while not await pg_asession.scalar(LOCK_WAITERS):
         assert time.monotonic() < deadline, "the second session never reached the first one's pending rows"
-        time.sleep(0.05)
-    first.commit()
-    first.close()
-    thread.join()
+        await asyncio.sleep(0.05)
+    await first.commit()
+    await first.close()
+    await second
 
-    assert len(errors) == 1
-    assert pg_session.scalar(select(func.count()).select_from(Member)) == 20
+    assert await pg_asession.scalar(select(func.count(func.distinct(Member.email)))) == 40
+
+
+def test_an_overridden_duplicate_still_fails_on_postgres(pg_session):
+    Base.metadata.create_all(pg_session.get_bind())
+
+    with pytest.raises(IntegrityError):
+        seed(pg_session, Member, overrides={Member: {"email": "same@example.com"}})
+
+
+def test_a_rollback_still_undoes_a_seed_on_postgres(pg_session):
+    Base.metadata.create_all(pg_session.get_bind())
+    pg_session.commit()
+
+    seed(pg_session, User, post=2)
+    pg_session.rollback()
+
+    assert pg_session.scalar(select(func.count()).select_from(Post)) == 0
 
 
 def test_two_seeds_in_a_row_on_postgres(pg_session):

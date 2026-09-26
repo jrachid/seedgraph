@@ -34,7 +34,7 @@ They create linked objects. Three differences survive a closer look:
 
 **1. A verified exit contract, not just object creation.** factory_boy, pytest-factoryboy or mixer build the graph and stop there. `seed()` flushes the graph, lets the database assign the keys, then walks every link and raises `IncoherentGraphError` if a foreign key disagrees with the row it points at.
 
-**2. Coexistence with a populated database.** The database assigns the keys, so seeding on top of existing rows never collides on ids, never desynchronises a PostgreSQL sequence, and two sessions seeding the same tables at once never collide on keys. Unique columns are checked against the rows already there before anything is written.
+**2. Coexistence with a populated database.** The database assigns the keys, so seeding on top of existing rows never collides on ids, never desynchronises a PostgreSQL sequence, and stays safe when two sessions seed the same tables at once: a unique value the other session commits meanwhile is regenerated. Unique columns are checked against the rows already there before anything is written.
 
 **3. Determinism wired into pytest.** A new session replays the same values from the same seed; consecutive calls on one session continue the sequence instead of repeating it — inside a two-line fixture.
 
@@ -111,7 +111,7 @@ async def test_feed_async(seedgraph_agraph):
 |---|---|
 | Every link of the returned graph is verified after flush | `test_verification.py::test_seed_returns_a_graph_already_written_with_real_keys`, `::test_verify_graph_names_the_link_whose_foreign_key_disagrees` |
 | Seeding on top of existing rows keeps PostgreSQL sequences intact | `test_postgres.py::test_the_application_still_inserts_after_a_seed_on_top_of_its_rows` |
-| Two sessions seeding the same tables at once do not collide on keys | `test_postgres.py::test_two_sessions_seeding_the_same_tables_at_once_do_not_collide_on_keys` |
+| Two sessions seeding the same tables at once do not collide, unique values included | `test_postgres.py::test_two_sessions_seeding_the_same_tables_at_once_do_not_collide`, `::test_a_unique_value_another_session_commits_mid_seed_is_regenerated` |
 | Unique columns skip values already in the database | `test_unique.py::test_a_new_session_on_a_populated_database_skips_the_values_already_taken`, `::test_postgres_rows_from_an_earlier_run_do_not_block_a_new_seed` |
 | Same seed, same values; consecutive calls do not repeat | `test_generators.py::test_a_new_session_replays_the_same_values`, `::test_two_seeds_in_one_session_continue_the_same_faker_sequence` |
 | Generated values fit the column type (enum, length, precision, arrays) | `test_types.py` |
@@ -128,7 +128,7 @@ async def test_feed_async(seedgraph_agraph):
 - **Required columns of uncovered types** (JSON, custom `TypeDecorator`, arrays of those) raise `UnsupportedPlaceholderError`; declare a generator for them. Nullable ones are left empty.
 - **A multi-column unique constraint whose generated columns are only booleans or enums** is left to the database. For the others, one generated column is kept unique on its own, which is stricter than the constraint.
 - **An association class whose primary key combines its two foreign keys** holds one row per parent pair: the generated parent is shared, so two rows under the same parent collide. Seed one per parent, or use a many-to-many relationship.
-- **Two sessions seeding the same generated unique column at once can collide.** Each checks the committed rows, not the other session's pending ones, and a new session replays the same values: the database refuses the second with an `IntegrityError`, never a silent duplicate. Seed one after the other, or give that column a generator of your own.
+- **A concurrent seed can wait for the other session.** When two sessions generate the same unique value, the database holds the second one until the first commits or rolls back; seedgraph then regenerates the value if it was taken. On SQLite the write is not retried, since its drivers open no transaction before a SAVEPOINT: the second session gets the `IntegrityError`.
 - **A loop of required links between tables**, or a required link to its own table, cannot be generated; pass one side in `parents`.
 - **Determinism holds for a given Faker version.** Faker may change its data between releases.
 
