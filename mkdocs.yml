@@ -1,0 +1,76 @@
+site_name: seedgraph
+site_description: Seed your SQLAlchemy models as a referentially-consistent graph — one call, shared parents, verified links.
+site_url: https://jrachid.github.io/seedgraph/
+repo_url: https://github.com/jrachid/seedgraph
+repo_name: jrachid/seedgraph
+edit_uri: edit/main/docs/
+
+nav:
+  - Home: index.md
+  - Recipes:
+      - pytest on your own database: recipes/pytest.md
+      - FastAPI endpoints: recipes/fastapi.md
+      - Custom and JSON columns: recipes/custom-columns.md
+  - API reference: reference.md
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.snippets:
+      check_paths: true
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            show_root_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            members_order: source
+  - llmstxt:
+      full_output: llms-full.txt
+      markdown_description: >-
+        seedgraph builds a graph of SQLAlchemy ORM objects from a declared shape
+        (`seed(session, User, post=2, post__comment=3)`), writes it to the session,
+        lets the database assign the keys and verifies every foreign key against the
+        row it points at. Values come from Faker with a fixed seed, fit each column's
+        type and stay unique against rows already in the database. Use it to create
+        test data for SQLAlchemy 2.x models, in pytest or any test runner.
+      sections:
+        Getting started:
+          - index.md: Installation, quick start, guarantees, limits
+        Recipes:
+          - recipes/pytest.md: Seed your own test database with one rolled-back session per test
+          - recipes/fastapi.md: Seed data for FastAPI endpoint tests through dependency_overrides
+          - recipes/custom-columns.md: Fill JSON and custom TypeDecorator columns with generators and overrides
+        Reference:
+          - reference.md: seed, seed_async, Graph, the pytest fixtures and every error

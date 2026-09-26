@@ -26,6 +26,7 @@ dependencies = ["sqlalchemy>=2.0", "faker>=30"]
 
 [project.urls]
 Homepage = "https://github.com/jrachid/seedgraph"
+Documentation = "https://jrachid.github.io/seedgraph/"
 Repository = "https://github.com/jrachid/seedgraph"
 Issues = "https://github.com/jrachid/seedgraph/issues"
 
@@ -42,6 +43,12 @@ dev = [
     "asyncpg>=0.29",
     "mypy>=1.11",
     "polyfactory>=3.3.0",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings-python>=2.0.9",
+    "mkdocs-llmstxt>=0.5.0",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "mkdocs>=1.6,<2",
 ]
 
 [project.entry-points.pytest11]

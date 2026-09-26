@@ -16,14 +16,15 @@ uv sync --all-extras
 uv run pytest        # the PostgreSQL tests need Docker and are skipped without it
 uv run ruff check .
 uv run mypy
+uv run mkdocs build --strict   # the documentation site, served locally by mkdocs serve
 ```
 
-CI runs the same three commands on Python 3.11, 3.12 and 3.13, with PostgreSQL required.
+CI runs the same four commands on Python 3.11, 3.12 and 3.13, with PostgreSQL required.
 
 ## What a pull request needs
 
 - A test that fails without the change and passes with it; each guarantee of the README names the test that proves it.
-- Every `python` block of the README still runs: `tests/test_readme.py` executes them in order.
+- Every `python` block of the README still runs, and every recipe of `docs/recipes/` still passes as a test file: `tests/test_docs.py` checks both.
 - A commit message in the [Angular convention](https://github.com/angular/angular/blob/main/CONTRIBUTING.md#commit): `fix(shape): …`, `feat(generators): …`.
 
 ## Where to start
