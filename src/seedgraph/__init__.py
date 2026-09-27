@@ -45,7 +45,7 @@ from seedgraph.verification import IncoherentGraphError, verify_graph
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 
 __all__ = [
     "AmbiguousParentError",
