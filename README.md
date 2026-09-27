@@ -156,14 +156,15 @@ async def test_feed_async(seedgraph_agraph):
 
 Every Python team that seeds a relational test database eventually hand-rolls the same plumbing: generate rows, stage commits so primary keys exist, chase those keys into FK columns, repeat for every relationship, and hope the graph stays consistent.
 
-Here is what the alternatives give you:
+Here is what the alternatives give you, measured on 27 September 2026 by the scripts of [seedgraph-comparisons](https://github.com/jrachid/seedgraph-comparisons), which anyone can rerun:
 
-| Tool | What you get on a `User ← Post ← Comment` schema |
-|------|---------------------------------------------------|
-| `polyfactory` 3.3 | Builds related objects, and SQLAlchemy puts the right keys in the FK columns when it writes them. **But it draws every primary key at random between 0 and 9999**, so a test that writes a few dozen rows fails at random. Measured on the schema of the quick start with SQLAlchemy 2.1: `IntegrityError: UNIQUE constraint failed: users.id` in 30% of runs at 50 posts, 79% at 100, all of them at 200. The fix is one factory per model with `id = Ignore()`. Each post also gets its own author: no shared parents. |
-| `faker-sqlalchemy` (unmaintained since 2022, pinned to SQLAlchemy 1.x) | `RecursionError` on standard `backref` relationships, on self-referential FKs, and its `overrides` API silently drops FK values. |
-| `sqlalchemyseed` | Seeds data *you already have* (JSON/YAML), doesn't generate. |
-| `sqlseed`, `sowdb` | Solid fillers, but schema-level and flat: "N rows per table". They work from raw SQL schemas, not your models, and can't express a graph shape like *"3 users → 2 posts each → 5 comments per post"*. |
+| Tool | What you get |
+|------|--------------|
+| `polyfactory` 3.3 | Builds related objects, and SQLAlchemy puts the right keys in the FK columns when it writes them. **But it draws every primary key at random between 0 and 9999**, so a test that writes a few dozen rows fails at random with `IntegrityError: UNIQUE constraint failed`: about a third of runs at 50 posts, four in five at 100, every run at 200. The fix is one factory per model with `id = Ignore()`; each post still gets its own author, with no shared parents. |
+| `faker-sqlalchemy` 0.10 (last release August 2022, requires SQLAlchemy < 2.0) | With `generate_related=True`, `RecursionError` on any two-way relationship (`backref`) and on a self-referential FK; a foreign key passed in `overrides` is silently replaced by a newly generated parent. |
+| `sqlalchemyseed` 2.6 | Writes data you already have (JSON, YAML, CSV) through your models, nested relationships included. It doesn't generate values. |
+| `sqlseed` 0.2 | Fills an existing SQLite or PostgreSQL database from its schema, not from your models, one row count per table. A graph shape is reachable indirectly: with the `coverage` strategy, 6 posts over 3 users gives exactly 2 each, so you work out the totals yourself. |
+| `sowdb` 0.3 | PostgreSQL only, from the schema, one row count per table; each foreign key draws a random parent, so 6 posts over 3 users came out as 2, 2, 2 in one run out of ten. |
 
 The failure you meet first, once a test writes enough rows:
 
