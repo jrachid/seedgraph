@@ -160,7 +160,7 @@ Here is what the alternatives give you, measured on 27 September 2026 by the scr
 
 | Tool | What you get |
 |------|--------------|
-| `polyfactory` 3.3 | Builds related objects, and SQLAlchemy puts the right keys in the FK columns when it writes them. **But it draws every primary key at random between 0 and 9999**, so a test that writes a few dozen rows fails at random with `IntegrityError: UNIQUE constraint failed`: about a third of runs at 50 posts, four in five at 100, every run at 200. The fix is one factory per model with `id = Ignore()`; each post still gets its own author, with no shared parents. |
+| `polyfactory` 3.3 | Builds related objects, and SQLAlchemy puts the right keys in the FK columns when it writes them. **By default it draws every primary key at random between 0 and 9999**, so a test that writes a few dozen rows fails at random with `IntegrityError: UNIQUE constraint failed`: about a third of runs at 50 posts, three in four at 100, every run at 200. One line fixes it: `__set_primary_key__ = False`. A shape like 3 users × 2 posts × 5 comments comes out exact when the factory calls are nested from the top (`UserFactory.build(posts=[...])`). |
 | `faker-sqlalchemy` 0.10 (last release August 2022, requires SQLAlchemy < 2.0) | With `generate_related=True`, `RecursionError` on any two-way relationship (`backref`) and on a self-referential FK; a foreign key passed in `overrides` is silently replaced by a newly generated parent. |
 | `sqlalchemyseed` 2.6 | Writes data you already have (JSON, YAML, CSV) through your models, nested relationships included. It doesn't generate values. |
 | `sqlseed` 0.2 | Fills an existing SQLite or PostgreSQL database from its schema, not from your models, one row count per table. A graph shape is reachable indirectly: with the `coverage` strategy, 6 posts over 3 users gives exactly 2 each, so you work out the totals yourself. |
@@ -188,15 +188,19 @@ graph = seed(session, User, user=250, post=4)   # the database assigns the keys:
 assert len(graph.posts) == 1000
 ```
 
+polyfactory avoids it with `__set_primary_key__ = False` on the factory; seedgraph needs no setting.
+
 ### "But other libraries do this too, don't they?"
 
-They create linked objects. Three differences survive a closer look:
+Some of it, yes: polyfactory builds the same graph once its primary keys are switched off and its calls are nested from the top. What seedgraph adds:
 
-**1. A verified exit contract, not just object creation.** factory_boy, pytest-factoryboy or mixer build the graph and stop there. `seed()` flushes the graph, lets the database assign the keys, then walks every link and raises `IncoherentGraphError` if a foreign key disagrees with the row it points at.
+**1. The shape in one call.** `seed(session, User, user=3, post=2, post__comment=5)` replaces the nested factory calls. A link that needs a parent takes it from the shape, from `parents`, or from one generated parent shared by every object that needs it.
 
-**2. Coexistence with a populated database.** The database assigns the keys, so seeding on top of existing rows never collides on ids, never desynchronises a PostgreSQL sequence, and stays safe when two sessions seed the same tables at once: a unique value the other session commits meanwhile is regenerated. Unique columns are checked against the rows already there before anything is written.
+**2. A verified exit contract.** `seed()` flushes the graph, lets the database assign the keys, then walks every link and raises `IncoherentGraphError` if a foreign key disagrees with the row it points at.
 
-**3. Determinism wired into pytest.** A new session replays the same values from the same seed; consecutive calls on one session continue the sequence instead of repeating it — inside a two-line fixture.
+**3. Coexistence with a populated database, with no setting.** The database always assigns the keys, so seeding on top of existing rows never collides on ids, never desynchronises a PostgreSQL sequence, and stays safe when two sessions seed the same tables at once: a unique value the other session commits meanwhile is regenerated. Unique columns are checked against the rows already there before anything is written.
+
+**4. Determinism wired into pytest.** A new session replays the same values from the same seed; consecutive calls on one session continue the sequence instead of repeating it — inside a two-line fixture.
 
 ## Guarantees and the tests that prove them
 
