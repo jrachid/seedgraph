@@ -23,6 +23,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False)
     posts = relationship("Post", back_populates="author")
+    preview = relationship("Post", viewonly=True)
 
 
 class Post(Base):
@@ -132,7 +133,19 @@ def test_unknown_shape_key_raises():
     with pytest.raises(UnknownShapeKeyError) as excinfo:
         build_graph(User, {"blog": 2})
 
-    assert "blog" in str(excinfo.value)
+    assert str(excinfo.value) == "unknown shape key 'blog' for User — known keys: post, posts"
+
+
+@pytest.mark.parametrize("model, expected", [
+    (Post, "comment, comments"),
+    (Comment, "(none)"),
+    (Mailbox, "received, sent"),
+    (Article, "tag, tags"),
+])
+def test_unknown_shape_key_suggests_only_walkable_unambiguous_keys(model, expected):
+    with pytest.raises(UnknownShapeKeyError) as excinfo:
+        build_graph(model, {"typo": 1})
+    assert str(excinfo.value).endswith(f"known keys: {expected}")
 
 
 def test_invalid_shape_count_raises():
