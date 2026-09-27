@@ -106,41 +106,47 @@ def _resolve_tree(model: type[DeclarativeBase], counts: Mapping[str, int]) -> di
 
 def _resolve_segment(model: type[DeclarativeBase], segment: str) -> RelationshipProperty[Any]:
     """Resolve one shape segment: exact relationship key first, then the model it points at."""
+    relationship = _lookup(model, segment)
+    if relationship is None:
+        raise UnknownShapeKeyError(
+            f"unknown shape key {segment!r} for {model.__name__} — known keys: {_known_keys(model)}"
+        )
+    return _check_relationship(model, segment, relationship)
+
+
+def _lookup(model: type[DeclarativeBase], segment: str) -> RelationshipProperty[Any] | None:
+    """Return the relationship a segment names, or None when it names none."""
     mapper = class_mapper(model)
     exact = [rel for rel in mapper.relationships if rel.key == segment]
     if exact:
-        relationship = exact[0]
-    else:
-        matches = [
-            rel for rel in mapper.relationships
-            if rel.mapper.class_.__name__.lower() == segment and not rel.viewonly
-        ]
-        if not matches:
-            walkable = [rel for rel in mapper.relationships
-                        if not rel.viewonly and rel.direction.name in {"ONETOMANY", "MANYTOMANY"}]
-            known = {rel.key for rel in walkable}
-            for rel in walkable:
-                alias = rel.mapper.class_.__name__.lower()
-                aliases = [other for other in mapper.relationships
-                           if not other.viewonly and other.mapper.class_.__name__.lower() == alias]
-                # Exact relationship names win; do not suggest an ambiguous alias
-                # or one shadowed by an unsupported relationship.
-                if len(aliases) == 1 and not any(
-                    other.key == alias and other not in walkable for other in mapper.relationships
-                ):
-                    known.add(alias)
-            choices = ", ".join(sorted(known)) or "(none)"
-            raise UnknownShapeKeyError(
-                f"unknown shape key {segment!r} for {model.__name__} — known keys: {choices}"
-            )
-        if len(matches) > 1:
-            names = ", ".join(sorted(rel.key for rel in matches))
-            raise AmbiguousShapeKeyError(
-                f"shape key {segment!r} matches several relationships of {model.__name__}"
-                f" — address it by its relationship key instead: {names}"
-            )
-        relationship = matches[0]
-    return _check_relationship(model, segment, relationship)
+        return exact[0]
+    matches = [
+        rel for rel in mapper.relationships
+        if rel.mapper.class_.__name__.lower() == segment and not rel.viewonly
+    ]
+    if len(matches) > 1:
+        names = ", ".join(sorted(rel.key for rel in matches))
+        raise AmbiguousShapeKeyError(
+            f"shape key {segment!r} matches several relationships of {model.__name__}"
+            f" — address it by its relationship key instead: {names}"
+        )
+    return matches[0] if matches else None
+
+
+def _known_keys(model: type[DeclarativeBase]) -> str:
+    """List the relationship keys and class names a shape of this model accepts."""
+    relationships = class_mapper(model).relationships
+    candidates = {rel.key for rel in relationships} | {rel.mapper.class_.__name__.lower() for rel in relationships}
+    known = []
+    for candidate in sorted(candidates):
+        try:
+            relationship = _lookup(model, candidate)
+            if relationship is not None:
+                _check_relationship(model, candidate, relationship)
+                known.append(candidate)
+        except (AmbiguousShapeKeyError, UnsupportedShapeDirectionError):
+            continue
+    return ", ".join(known) or "(none)"
 
 
 def _check_relationship(model: type[DeclarativeBase], segment: str, relationship: RelationshipProperty[Any]) -> RelationshipProperty[Any]:
