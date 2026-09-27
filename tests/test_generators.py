@@ -173,8 +173,9 @@ def test_unknown_generator_column_raises():
     with pytest.raises(UnknownGeneratorColumnError) as excinfo:
         build_graph(User, {"user": 1}, generators={User: {"namae": lambda ctx: "x"}})
 
-    assert "User" in str(excinfo.value)
-    assert "namae" in str(excinfo.value)
+    assert str(excinfo.value) == (
+        "unknown generated column 'namae' for User — columns: email, id, name"
+    )
 
 
 def test_generators_keyword_coexists_with_shape(session):

@@ -88,8 +88,9 @@ def test_unknown_override_column_raises():
     with pytest.raises(UnknownOverrideColumnError) as excinfo:
         build_graph(User, {"user": 1}, overrides={User: {"namae": "x"}})
 
-    assert "User" in str(excinfo.value)
-    assert "namae" in str(excinfo.value)
+    assert str(excinfo.value) == (
+        "unknown overridden column 'namae' for User — columns: email, id, name"
+    )
 
 
 @pytest.fixture()
