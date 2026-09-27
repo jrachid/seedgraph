@@ -172,8 +172,10 @@ class FieldGenerator:
         if produce is None:
             if column.nullable:
                 return UNSET
+            model_name = getattr(model, "__name__", str(model))
             raise UnsupportedPlaceholderError(
                 f"cannot generate NOT NULL column {column.table.key}.{column.key} of type {column.type}"
+                f' — declare one: generators={{{model_name}: {{"{column.key}": lambda ctx: ...}}}}'
             )
         if not is_unique(column):
             return produce()
