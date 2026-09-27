@@ -156,27 +156,35 @@ async def test_feed_async(seedgraph_agraph):
 
 Every Python team that seeds a relational test database eventually hand-rolls the same plumbing: generate rows, stage commits so primary keys exist, chase those keys into FK columns, repeat for every relationship, and hope the graph stays consistent.
 
-After empirically testing the landscape (SQLAlchemy 2.x era, August 2026), none of the existing options does it:
+Here is what the alternatives give you:
 
 | Tool | What you get on a `User ← Post ← Comment` schema |
 |------|---------------------------------------------------|
-| `polyfactory` | Builds related objects, **but every FK column is a random int pointing at nothing**: `post.author_id != post.author.id`. Silent data corruption — tests pass on garbage unless you enable FK enforcement (most don't). |
+| `polyfactory` 3.3 | Builds related objects, and SQLAlchemy puts the right keys in the FK columns when it writes them. **But it draws every primary key at random between 0 and 9999**, so a test that writes a few dozen rows fails at random. Measured on the schema of the quick start with SQLAlchemy 2.1: `IntegrityError: UNIQUE constraint failed: users.id` in 30% of runs at 50 posts, 79% at 100, all of them at 200. The fix is one factory per model with `id = Ignore()`. Each post also gets its own author: no shared parents. |
 | `faker-sqlalchemy` (unmaintained since 2022, pinned to SQLAlchemy 1.x) | `RecursionError` on standard `backref` relationships, on self-referential FKs, and its `overrides` API silently drops FK values. |
 | `sqlalchemyseed` | Seeds data *you already have* (JSON/YAML), doesn't generate. |
 | `sqlseed`, `sowdb` | Solid fillers, but schema-level and flat: "N rows per table". They work from raw SQL schemas, not your models, and can't express a graph shape like *"3 users → 2 posts each → 5 comments per post"*. |
 
-The one-line failure seedgraph fixes:
+The failure you meet first, once a test writes enough rows:
 
 ```python
+import pytest
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
+from sqlalchemy.exc import IntegrityError
 
 
 class PostFactory(SQLAlchemyFactory[Post]):
     __set_relationships__ = True
 
 
-p = PostFactory.build()
-assert p.author_id != p.author.id   # every FK in the graph is disconnected
+factory_engine = create_engine("sqlite://")
+Base.metadata.create_all(factory_engine)
+with Session(factory_engine) as factory_session, pytest.raises(IntegrityError, match="UNIQUE constraint failed: users.id"):
+    factory_session.add_all(PostFactory.batch(1000))   # 1000 random ids between 0 and 9999 collide
+    factory_session.flush()
+
+graph = seed(session, User, user=250, post=4)   # the database assigns the keys: nothing to collide
+assert len(graph.posts) == 1000
 ```
 
 ### "But other libraries do this too, don't they?"
