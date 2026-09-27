@@ -217,7 +217,9 @@ def test_unknown_column_type_still_raises():
     with pytest.raises(UnsupportedPlaceholderError) as excinfo:
         build_graph(Document, {"document": 1})
 
-    assert "fingerprint" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "fingerprint" in message
+    assert 'generators={Document: {"fingerprint": lambda ctx: ...}}' in message
 
 
 def test_pk_and_fk_are_never_generated(session):
