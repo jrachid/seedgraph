@@ -188,7 +188,7 @@ graph = seed(session, User, user=250, post=4)   # the database assigns the keys:
 assert len(graph.posts) == 1000
 ```
 
-polyfactory avoids it with `__set_primary_key__ = False` on the factory; seedgraph needs no setting.
+polyfactory avoids it with `__set_primary_key__ = False` on the factory; seedgraph needs no setting. Why the ids collide, and how often: [Your SQLAlchemy test factory fails at random past 50 rows](https://dev.to/rachidjef/your-sqlalchemy-test-factory-fails-at-random-past-50-rows-heres-the-one-line-fix-3dn6).
 
 ### "But other libraries do this too, don't they?"
 
