@@ -5,6 +5,7 @@ from collections import OrderedDict
 import pytest
 from faker import Faker
 from faker.providers import BaseProvider
+from faker.providers.person import en_US
 from hypothesis import given
 from hypothesis import strategies as st
 from sqlalchemy import Column, ForeignKey, Integer, String, create_engine
@@ -65,14 +66,28 @@ def _pair(locale, seed_value):
     return untouched, seedgraph_fake
 
 
-def test_a_weighted_table_drawn_many_times_reads_its_weights_once():
-    table = CountingTable([("rare", 1), ("common", 8), ("medium", 3)])
+def test_a_table_faker_ships_reads_its_weights_once_however_many_draws(monkeypatch):
+    table = CountingTable(en_US.Provider.last_names)
+    monkeypatch.setattr(en_US.Provider, "last_names", table)
     fake = GenerationState().fake
 
     for _ in range(50):
-        fake.random_element(table)
+        fake.last_name()
 
     assert table.reads == 1
+
+
+def test_a_custom_table_changed_in_place_is_drawn_with_its_new_weights_like_faker_does():
+    table = OrderedDict([("before", 1), ("after", 0)])
+    untouched, seedgraph_fake = _pair(DEFAULT_LOCALE, 0)
+    draws = []
+    for fake in (untouched, seedgraph_fake):
+        table["before"], table["after"] = 1, 0
+        first = fake.random_element(table)
+        table["before"], table["after"] = 0, 1
+        draws.append((first, fake.random_element(table)))
+
+    assert draws[0] == draws[1] == ("before", "after")
 
 
 @given(
