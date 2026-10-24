@@ -73,6 +73,33 @@ class Credit(Base):
     writer = relationship("Writer")
 
 
+posts_labels = Table(
+    "posts_labels",
+    Base.metadata,
+    Column("post_id", ForeignKey("posts.id"), primary_key=True),
+    Column("label_id", ForeignKey("labels.id"), primary_key=True),
+)
+
+
+class Post(Base):
+    __tablename__ = "posts"
+    id = Column(Integer, primary_key=True)
+    title = Column(Text, nullable=False)
+    labels = relationship("Label", secondary=posts_labels)
+
+
+class Label(Base):
+    __tablename__ = "labels"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(40), nullable=False, unique=True)
+    color = Column(String(20), nullable=False)
+
+    def __eq__(self, other):
+        return isinstance(other, Label) and other.color == self.color
+
+    __hash__ = object.__hash__
+
+
 @pytest.fixture()
 def session():
     engine = create_engine("sqlite://")
@@ -202,3 +229,12 @@ def test_existing_objects_are_shared_on_postgres(pg_session):
     pg_session.commit()
 
     assert _links(pg_session) == 10
+
+
+def test_every_parent_passed_is_attached_even_when_its_eq_matches_another(session):
+    urgent, alarm = Label(name="urgent", color="red"), Label(name="alarm", color="red")
+    session.add_all([urgent, alarm])
+
+    graph = seed(session, Post, post=2, parents=[urgent, alarm])
+
+    assert all(len(post.labels) == 2 for post in graph.posts)

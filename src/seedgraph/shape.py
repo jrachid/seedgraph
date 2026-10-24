@@ -230,8 +230,10 @@ class _ParentLinker:
 
     def _share(self, obj: Any, relationship: RelationshipProperty[Any]) -> None:
         collection = getattr(obj, relationship.key)
+        present = {id(item) for item in collection}
         for shared in self._provided.get(relationship.mapper.class_, []):
-            if shared not in collection:
+            if id(shared) not in present:
+                present.add(id(shared))
                 collection.append(shared)
 
     def _generate(self, target: type[DeclarativeBase]) -> Any:
