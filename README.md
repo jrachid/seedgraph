@@ -198,7 +198,7 @@ Some of it, yes: polyfactory builds the same graph once its primary keys are swi
 
 **2. A verified exit contract.** `seed()` flushes the graph, lets the database assign the keys, then walks every link and raises `IncoherentGraphError` if a foreign key disagrees with the row it points at.
 
-**3. Coexistence with a populated database, with no setting.** The database always assigns the keys, so seeding on top of existing rows never collides on ids, never desynchronises a PostgreSQL sequence, and stays safe when two sessions seed the same tables at once: a unique value the other session commits meanwhile is regenerated. Unique columns are checked against the rows already there before anything is written.
+**3. Coexistence with a populated database, with no setting.** The database always assigns the keys, so seeding on top of existing rows never collides on ids, never desynchronises a PostgreSQL sequence, and stays safe when two sessions seed the same tables at once: a unique value the other session commits meanwhile is regenerated. Unique columns are checked against the rows already there before anything is written, however many earlier sessions seeded the same database.
 
 **4. Determinism wired into pytest.** A new session replays the same values from the same seed; consecutive calls on one session continue the sequence instead of repeating it — inside a two-line fixture.
 
@@ -210,6 +210,7 @@ Some of it, yes: polyfactory builds the same graph once its primary keys are swi
 | Seeding on top of existing rows keeps PostgreSQL sequences intact | `test_postgres.py::test_the_application_still_inserts_after_a_seed_on_top_of_its_rows` |
 | Two sessions seeding the same tables at once do not collide, unique values included | `test_postgres.py::test_two_sessions_seeding_the_same_tables_at_once_do_not_collide`, `::test_a_unique_value_another_session_commits_mid_seed_is_regenerated` |
 | Unique columns skip values already in the database | `test_unique.py::test_a_new_session_on_a_populated_database_skips_the_values_already_taken`, `::test_postgres_rows_from_an_earlier_run_do_not_block_a_new_seed` |
+| Unique columns hold across any number of sessions on a persistent database | `test_unique.py::test_thirty_sessions_on_one_persistent_database_all_succeed`, `::test_postgres_survives_many_sessions_on_one_database` |
 | Same seed, same values; consecutive calls do not repeat | `test_generators.py::test_a_new_session_replays_the_same_values`, `::test_two_seeds_in_one_session_continue_the_same_faker_sequence` |
 | Generated values fit the column type (enum, length, precision, arrays) | `test_types.py` |
 | Many-to-many shapes build new objects per parent; existing objects are shared | `test_many_to_many.py::test_a_many_to_many_count_builds_new_objects_for_each_parent`, `::test_existing_objects_passed_as_parents_are_shared_by_every_generated_object` |
@@ -227,14 +228,14 @@ Some of it, yes: polyfactory builds the same graph once its primary keys are swi
 - **An association class whose primary key combines its two foreign keys** holds one row per parent pair: the generated parent is shared, so two rows under the same parent collide. Seed one per parent, or use a many-to-many relationship.
 - **A concurrent seed can wait for the other session.** When two sessions generate the same unique value, the database holds the second one until the first commits or rolls back; seedgraph then regenerates the value if it was taken. On SQLite the write is not retried, since its drivers open no transaction before a SAVEPOINT: the second session gets the `IntegrityError`.
 - **A loop of required links between tables**, or a required link to its own table, cannot be generated; pass one side in `parents`.
-- **Determinism holds for a given Faker version.** Faker may change its data between releases.
+- **Determinism holds for a given seedgraph and Faker version, on the same database content.** Faker may change its data between releases. A generated unique value that collides with a row already in the database is replaced by a value derived from it, so other rows give other replacements.
 
 ## Design principles
 
 1. **Model-first, not schema-first.** Works from your SQLAlchemy ORM models and relationships.
 2. **Referential consistency is verified, not hoped for.** The database assigns the keys, seedgraph checks every link afterwards.
 3. **Shared parents are the point.** Realistic data shares parents (one author, many posts). One object per FK is not a graph.
-4. **Deterministic.** A new session with the same calls produces the same graph.
+4. **Deterministic.** A new session with the same calls, on the same database content, produces the same graph.
 5. **Self-references and mutually referencing tables are normal.** `Category.parent` and tables pointing at each other are supported; only unsatisfiable loops of required links are refused.
 6. **Stop generating at the boundary.** Existing rows are usable as parents; only missing parents get generated.
 
