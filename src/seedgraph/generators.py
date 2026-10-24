@@ -31,6 +31,7 @@ from sqlalchemy.orm import class_mapper
 from sqlalchemy.types import TypeEngine
 
 from seedgraph.exceptions import SeedgraphError
+from seedgraph.sampling import install_cumulative_sampling
 
 __all__ = [
     "UNSET",
@@ -133,6 +134,7 @@ class GenerationState:
     def __init__(self) -> None:
         self.fake: Faker = Faker(locale=DEFAULT_LOCALE)
         self.fake.seed_instance(DEFAULT_SEED)
+        install_cumulative_sampling(self.fake)
         self.used: dict[tuple[str, str], set[Any]] = {}
 
     def used_values(self, column: Column[Any]) -> set[Any]:
