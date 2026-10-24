@@ -3,6 +3,7 @@
 Its world is (column, fake) -> value. No session, no shape, no graph.
 """
 
+import hashlib
 from collections.abc import Callable
 from functools import cache
 from typing import Any, TypeAlias, TypeGuard, cast
@@ -193,8 +194,25 @@ class FieldGenerator:
             " attempts — widen its generator or declare one in generators"
         )
 
+    def value_at(self, model: type, column: Column[Any], origin: Any, rank: int) -> Any:
+        """Return the replacement of that rank for a taken unique value: always the same one, the main stream untouched."""
+        produce = self._producer(model, column)
+        if produce is None:
+            return UNSET
+        key = repr((DEFAULT_SEED, column.table.key, column.key, origin, rank)).encode()
+        random = self._fake.random
+        saved = random.getstate()
+        random.seed(int.from_bytes(hashlib.blake2b(key, digest_size=8).digest(), "big"))
+        try:
+            return produce()
+        finally:
+            random.setstate(saved)
+
     def is_overridden(self, model: type, column: Column[Any]) -> bool:
         return column.key in self._overrides.get(model, {})
+
+    def is_used(self, column: Column[Any], value: Any) -> bool:
+        return value in self._state.used_values(column)
 
     def remember(self, column: Column[Any], values: set[Any]) -> None:
         """Mark values as used so the unique column never produces them again."""
