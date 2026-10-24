@@ -106,11 +106,6 @@ class UnknownOverrideColumnError(SeedgraphError):
     """A column declared in overrides does not exist on its model."""
 
 
-def validate_generators(generators: GeneratorMap | None) -> None:
-    """Reject any declared column that matches no column of its declared model."""
-    validate_column_declarations(generators, None)
-
-
 def validate_column_declarations(generators: GeneratorMap | None, overrides: OverrideMap | None) -> None:
     """Reject any declared column that matches no column of its declared model."""
     errors = (
