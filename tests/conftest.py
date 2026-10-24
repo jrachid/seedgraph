@@ -2,6 +2,7 @@ import os
 from collections.abc import AsyncIterator, Iterator
 
 import pytest
+from hypothesis import HealthCheck, settings
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session
@@ -53,3 +54,8 @@ async def pg_asession(pg_url: str, pg_engine: Engine) -> AsyncIterator[AsyncSess
     async with AsyncSession(engine) as session:
         yield session
     await engine.dispose()
+
+
+settings.register_profile("default", deadline=None, suppress_health_check=[HealthCheck.too_slow])
+settings.register_profile("thorough", parent=settings.get_profile("default"), max_examples=1000)
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "default"))
