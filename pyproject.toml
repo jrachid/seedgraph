@@ -49,6 +49,7 @@ dev = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
     "mkdocs>=1.6,<2",
+    "hypothesis>=6.170.9",
 ]
 
 [project.entry-points.pytest11]
